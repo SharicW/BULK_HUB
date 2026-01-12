@@ -24,10 +24,10 @@ function init() {
   sidebarApi = renderSidebar(sidebarEl, { onNavigate: handleRouteChange });
   window.addEventListener('hashchange', handleRouteChange);
 
-  if (!window.location.hash  !routes[window.location.hash]) {
-    window.location.hash = '#map';
-  }
-  handleRouteChange();
+ if (!window.location.hash || !routes[window.location.hash]) {
+  window.location.hash = '#map';
+}
+handleRouteChange();
 }
 
 function handleRouteChange() {
@@ -57,3 +57,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
