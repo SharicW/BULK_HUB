@@ -1,6 +1,6 @@
 :{$PORT}
 
-root * /app
+root * /srv
 
 try_files {path} {path}/ /index.html
 
