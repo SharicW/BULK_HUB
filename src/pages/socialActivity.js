@@ -142,7 +142,7 @@ export function renderSocialActivity(target) {
     apiStatus.textContent = 'Loading data from API...';
 
     try {
-      const [dcTop, tgTop] = await Promise.all([getDiscordTop(15), getTelegramTop(15)]);
+      const [dcTop, tgTop] = await Promise.all([getDiscordTop(5000), getTelegramTop(5000)]);
       if (!mounted) return;
 
       const dcCount = Array.isArray(dcTop) ? dcTop.filter((x) => x && !x.error).length : 0;
@@ -215,3 +215,4 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
