@@ -24,7 +24,7 @@ function init() {
   sidebarApi = renderSidebar(sidebarEl, { onNavigate: handleRouteChange });
   window.addEventListener('hashchange', handleRouteChange);
 
-  if (!window.location.hash || !routes[window.location.hash]) {
+  if (!window.location.hash  !routes[window.location.hash]) {
     window.location.hash = '#map';
   }
   handleRouteChange();
@@ -32,7 +32,7 @@ function init() {
 
 function handleRouteChange() {
   const hash = normalizeHash(window.location.hash);
-  const route = routes[hash] || routes['#map'];
+  const route = routes[hash]  routes['#map'];
 
   if (currentCleanup) {
     try {
@@ -58,56 +58,23 @@ if (document.readyState === 'loading') {
   init();
 }
 
-const express = require('express');
-const client = require('./utils/db');  // Подключаем клиент базы данных
-const app = express();
+export const API_BASE = "https://bulk_hub_database.railway.internal.up.railway.app";
 
-// Пример маршрута для получения данных из таблицы discord_users
-app.get('/discord', async (req, res) => {
-  try {
-    const result = await client.query('SELECT * FROM discord_users'); // Запрос к таблице discord_users
-    res.json(result.rows);  // Отправляем данные в формате JSON
-  } catch (err) {
-    console.error('Error fetching discord data', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
+export async function getDiscordTop(limit = 15) {
+  const r = await fetch(${API_BASE}/discord/top/${limit});
+  return await r.json();
+}
 
-// Пример маршрута для получения данных из таблицы telegram_users
-app.get('/telegram', async (req, res) => {
-  try {
-    const result = await client.query('SELECT * FROM telegram_users'); // Запрос к таблице telegram_users
-    res.json(result.rows);
-  } catch (err) {
-    console.error('Error fetching telegram data', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
+export async function getTelegramTop(limit = 15) {
+  const r = await fetch(${API_BASE}/telegram/top/${limit});
+  return await r.json();
+}
 
-app.get('/discord/:user_id', async (req, res) => {
-  const userId = req.params.user_id;
-  try {
-    const result = await client.query('SELECT * FROM discord_users WHERE user_id = $1', [userId]);
-    if (result.rows.length === 0) {
-      return res.status(404).send('User not found');
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Error fetching discord user', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
+export async function findDiscordUser(username) {
+  const r = await fetch(${API_BASE}/dc/${encodeURIComponent(username)});
+  return await r.json();
+}
 
-app.get('/telegram/:user_id', async (req, res) => {
-  const userId = req.params.user_id;
-  try {
-    const result = await client.query('SELECT * FROM telegram_users WHERE user_id = $1', [userId]);
-    if (result.rows.length === 0) {
-      return res.status(404).send('User not found');
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Error fetching telegram user', err);
-    res.status(500).send('Internal Server Error');
-  }
-});
+export async function findTelegramUser(username) {
+  const r = await fetch(${API_BASE}/tg/${encodeURIComponent(username)});
+  return await r.json();
