@@ -1,4 +1,4 @@
-export const API_BASE = "https://bulk_hub_database.railway.internal.railway.app";
+export const API_BASE = "https://bulkhubdatabase-production.up.railway.app";
 
 export async function getDiscordTop(limit = 15) {
   const r = await fetch(${API_BASE}/discord/top/${limit});
