@@ -1,4 +1,3 @@
-
 export const API_BASE = "https://bulkhubdatabase-production.up.railway.app";
 
 async function toJson(res) {
@@ -27,5 +26,10 @@ export async function findTelegramUser(username) {
 
 export async function findDiscordUser(username) {
   const res = await fetch(`${API_BASE}/dc/${encodeURIComponent(username)}`);
+  return toJson(res);
+}
+
+export async function getCommunityStats() {
+  const res = await fetch(`${API_BASE}/community/stats`);
   return toJson(res);
 }
