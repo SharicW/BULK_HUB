@@ -22,11 +22,10 @@ const sidebarEl = document.getElementById('sidebar');
 
 function init() {
   initLoginModal();
-
   sidebarApi = renderSidebar(sidebarEl, { onNavigate: handleRouteChange });
   window.addEventListener('hashchange', handleRouteChange);
 
-  if (!window.location.hash  !routes[window.location.hash]) {
+  if (!window.location.hash || !routes[window.location.hash]) {
     window.location.hash = '#map';
   }
 
@@ -34,26 +33,16 @@ function init() {
 }
 
 function handleRouteChange() {
-  const hash = normalizeHash(window.location.hash);
-  const route = routes[hash]  routes['#map'];
+  const hash = routes[window.location.hash] ? window.location.hash : '#map';
+  const route = routes[hash] || routes['#map'];
 
   if (currentCleanup) {
-    try {
-      currentCleanup();
-    } catch (e) {
-      console.warn('Cleanup error', e);
-    }
+    try { currentCleanup(); } catch (e) { console.warn('Cleanup error', e); }
     currentCleanup = null;
   }
 
   sidebarApi?.setActive(hash);
-
-  const cleanup = route.render(mainOutlet) || null;
-  currentCleanup = cleanup;
-}
-
-function normalizeHash(hash) {
-  return routes[hash] ? hash : '#map';
+  currentCleanup = route.render(mainOutlet) || null;
 }
 
 if (document.readyState === 'loading') {
