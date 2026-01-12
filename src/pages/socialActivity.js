@@ -191,7 +191,7 @@ export function renderSocialActivity(target) {
       if (network === 'telegram') {
         data = await findTelegramUser(username);
         if (data?.error) {
-          resultValue.textContent = Not found in Telegram: ${username};
+          resultValue.textContent = `Not found: ${username}`;
           return;
         }
         resultValue.textContent = ${data.messages ?? 0} messages for ${data.username ?? username} on Telegram;
@@ -223,3 +223,4 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
