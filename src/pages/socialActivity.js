@@ -138,35 +138,42 @@ export function renderSocialActivity(target) {
 
   let mounted = true;
 
-  async function loadStats() {
-    apiStatus.textContent = 'Loading data from API...';
+async function loadStats() {
+  apiStatus.textContent = 'Loading data from API...';
 
-    try {
-      const [dcTop, tgTop] = await Promise.all([getDiscordTop(5000), getTelegramTop(5000)]);
-      if (!mounted) return;
+  try {
+    // leaderboard (top 15) + реальные размеры комьюнити (COUNT(*))
+    const [stats, dcTop, tgTop] = await Promise.all([
+      getCommunityStats(),
+      getDiscordTop(15),
+      getTelegramTop(15),
+    ]);
 
-      const dcCount = Array.isArray(dcTop) ? dcTop.filter((x) => x && !x.error).length : 0;
-      const tgCount = Array.isArray(tgTop) ? tgTop.filter((x) => x && !x.error).length : 0;
+    if (!mounted) return;
 
-      dcCountEl.textContent = String(dcCount);
-      tgCountEl.textContent = String(tgCount);
-      xCountEl.textContent = '0';
+    const dcCount = Number(stats?.discord_users ?? 0);
+    const tgCount = Number(stats?.telegram_users ?? 0);
+    const xCount = Number(stats?.x_users ?? 0);
+    const total = Number(stats?.total_users ?? (dcCount + tgCount + xCount));
 
-      totalEl.textContent = String(dcCount + tgCount);
+    dcCountEl.textContent = String(dcCount);
+    tgCountEl.textContent = String(tgCount);
+    xCountEl.textContent = String(xCount);
+    totalEl.textContent = String(total);
 
-      const boards = [
-        makeTop5Board('Discord', 'Messages', dcTop),
-        makeTop5Board('Telegram', 'Messages', tgTop),
-        { network: 'X', metricLabel: 'Engage Points', entries: [] },
-      ];
+    const boards = [
+      makeTop5Board('Discord', 'Messages', dcTop),
+      makeTop5Board('Telegram', 'Messages', tgTop),
+      { network: 'X', metricLabel: 'Engage Points', entries: [] },
+    ];
 
-      leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
-      apiStatus.textContent = 'API connected ✅';
-    } catch (e) {
-      console.error(e);
-      apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
-    }
+    leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
+    apiStatus.textContent = 'API connected ✅';
+  } catch (e) {
+    console.error(e);
+    apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
   }
+}
 
   async function handleSearch() {
     const username = searchInput.value.trim();
@@ -215,5 +222,6 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
 
