@@ -1,13 +1,21 @@
 import { createEl } from '../utils/dom.js';
 import { getTelegramTop, getDiscordTop, findTelegramUser, findDiscordUser } from '../api.js';
 
-const membershipCounts = [
-  { network: 'Discord', count: 0, key: 'discord' },
-  { network: 'Telegram', count: 0, key: 'telegram' },
-  { network: 'X', count: 0, key: 'x' },
-];
+function buildLeaderboardCard(board) {
+  const entriesHtml = board.entries
+    .map((member, index) => {
+      return `
+        <li>
+          <div class="leaderboard-card__entry">
+            <span class="leaderboard-card__name">${member.name}</span>
+            <span class="leaderboard-card__value">${member.value} ${board.metricLabel}</span>
+          </div>
+          <span class="leaderboard-card__rank">#${index + 1}</span>
+        </li>
+      `;
+    })
+    .join('');
 
-function buildLeaderboard(board) {
   return `
     <article class="leaderboard-card">
       <div class="leaderboard-card__header">
@@ -18,26 +26,15 @@ function buildLeaderboard(board) {
         <span class="leaderboard-card__badge">${board.entries.length} entries</span>
       </div>
       <ol class="leaderboard-card__list">
-        ${board.entries
-          .map(
-            (member, index) => `
-              <li>
-                <div class="leaderboard-card__entry">
-                  <span class="leaderboard-card__name">${member.name}</span>
-                  <span class="leaderboard-card__value">${member.value} ${board.metricLabel}</span>
-                </div>
-                <span class="leaderboard-card__rank">#${index + 1}</span>
-              </li>
-            `,
-          )
-          .join('')}
+        ${entriesHtml}
       </ol>
     </article>
   `;
 }
 
-function makeBoard(network, metricLabel, apiRows) {
-  const entries = (Array.isArray(apiRows) ? apiRows : [])
+function makeTop5Board(network, metricLabel, apiRows) {
+  const rows = Array.isArray(apiRows) ? apiRows : [];
+  const entries = rows
     .filter((x) => x && !x.error)
     .slice(0, 5)
     .map((r) => ({
@@ -68,25 +65,31 @@ export function renderSocialActivity(target) {
     </section>
 
     <section class="social-activity__metrics" id="metrics">
-      ${membershipCounts
-        .map(
-          (network) => `
-            <article class="social-activity__stat" data-key="${network.key}">
-              <div class="social-activity__stat-label">${network.network}</div>
-              <div class="social-activity__stat-value">0</div>
-              <p class="social-activity__stat-subtitle">Community members</p>
-            </article>
-          `,
-        )
-        .join('')}
+      <article class="social-activity__stat" data-key="discord">
+        <div class="social-activity__stat-label">Discord</div>
+        <div class="social-activity__stat-value" id="count-discord">0</div>
+        <p class="social-activity__stat-subtitle">Community members</p>
+      </article>
+
+      <article class="social-activity__stat" data-key="telegram">
+        <div class="social-activity__stat-label">Telegram</div>
+        <div class="social-activity__stat-value" id="count-telegram">0</div>
+        <p class="social-activity__stat-subtitle">Community members</p>
+      </article>
+
+      <article class="social-activity__stat" data-key="x">
+        <div class="social-activity__stat-label">X</div>
+        <div class="social-activity__stat-value" id="count-x">0</div>
+        <p class="social-activity__stat-subtitle">Community members</p>
+      </article>
     </section>
 
     <section class="social-activity__leaderboard">
       <h3 class="social-activity__leaderboard-title">Leaderboard</h3>
       <div class="social-activity__leaderboard-grid" id="leaderboard-grid">
-        ${buildLeaderboard({ network: 'Discord', metricLabel: 'Messages', entries: [] })}
-        ${buildLeaderboard({ network: 'Telegram', metricLabel: 'Messages', entries: [] })}
-        ${buildLeaderboard({ network: 'X', metricLabel: 'Engage Points', entries: [] })}
+        ${buildLeaderboardCard({ network: 'Discord', metricLabel: 'Messages', entries: [] })}
+        ${buildLeaderboardCard({ network: 'Telegram', metricLabel: 'Messages', entries: [] })}
+        ${buildLeaderboardCard({ network: 'X', metricLabel: 'Engage Points', entries: [] })}
       </div>
       <p class="muted" style="margin-top:12px" id="api-status"></p>
     </section>
@@ -97,6 +100,7 @@ export function renderSocialActivity(target) {
           <label for="community-search-input">Search username</label>
           <input type="text" id="community-search-input" placeholder="Enter username" />
         </div>
+
         <div class="form-group">
           <label for="community-filter">Filter by network</label>
           <div class="styled-select">
@@ -107,11 +111,13 @@ export function renderSocialActivity(target) {
             </select>
           </div>
         </div>
+
         <button type="button" id="community-search-btn" class="btn-primary">Search</button>
       </div>
+
       <div class="social-activity__search-result">
         <span class="muted">Results show total messages posted across the selected network</span>
-        <div class="social-activity__search-result-value">-- messages</div>
+        <div class="social-activity__search-result-value" id="search-result">-- messages</div>
       </div>
     </section>
   `;
@@ -119,64 +125,52 @@ export function renderSocialActivity(target) {
   target.appendChild(wrapper);
 
   const totalEl = wrapper.querySelector('#total-community');
-  const metricsEl = wrapper.querySelector('#metrics');
+  const dcCountEl = wrapper.querySelector('#count-discord');
+  const tgCountEl = wrapper.querySelector('#count-telegram');
+  const xCountEl = wrapper.querySelector('#count-x');
   const leaderboardGrid = wrapper.querySelector('#leaderboard-grid');
   const apiStatus = wrapper.querySelector('#api-status');
 
   const searchBtn = wrapper.querySelector('#community-search-btn');
   const searchInput = wrapper.querySelector('#community-search-input');
   const filterInput = wrapper.querySelector('#community-filter');
-  const resultValue = wrapper.querySelector('.social-activity__search-result-value');
+  const resultValue = wrapper.querySelector('#search-result');
 
-  let isMounted = true;
+  let mounted = true;
 
   async function loadStats() {
     apiStatus.textContent = 'Loading data from API...';
 
     try {
-      const [dcTop, tgTop] = await Promise.all([
-        getDiscordTop(15),
-        getTelegramTop(15),
-      ]);
-
-      if (!isMounted) return;
+      const [dcTop, tgTop] = await Promise.all([getDiscordTop(15), getTelegramTop(15)]);
+      if (!mounted) return;
 
       const dcCount = Array.isArray(dcTop) ? dcTop.filter((x) => x && !x.error).length : 0;
       const tgCount = Array.isArray(tgTop) ? tgTop.filter((x) => x && !x.error).length : 0;
 
-      const cards = metricsEl.querySelectorAll('.social-activity__stat');
-      cards.forEach((card) => {
-        const key = card.getAttribute('data-key');
-        const valEl = card.querySelector('.social-activity__stat-value');
-        if (!valEl) return;
+      dcCountEl.textContent = String(dcCount);
+      tgCountEl.textContent = String(tgCount);
+      xCountEl.textContent = '0';
 
-        if (key === 'discord') valEl.textContent = String(dcCount);
-        if (key === 'telegram') valEl.textContent = String(tgCount);
-        if (key === 'x') valEl.textContent = '0';
-      });
-
-      const totalCommunity = dcCount + tgCount + 0;
-      totalEl.textContent = String(totalCommunity);
+      totalEl.textContent = String(dcCount + tgCount);
 
       const boards = [
-        makeBoard('Discord', 'Messages', dcTop),
-        makeBoard('Telegram', 'Messages', tgTop),
+        makeTop5Board('Discord', 'Messages', dcTop),
+        makeTop5Board('Telegram', 'Messages', tgTop),
         { network: 'X', metricLabel: 'Engage Points', entries: [] },
       ];
 
-      leaderboardGrid.innerHTML = boards.map(buildLeaderboard).join('');
-
+      leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
       apiStatus.textContent = 'API connected ✅';
     } catch (e) {
       console.error(e);
-      if (!isMounted) return;
-      apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service up)';
+      apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
     }
   }
 
   async function handleSearch() {
     const username = searchInput.value.trim();
-    const network = filterInput.value; // discord telegram x
+    const network = filterInput.value;
 
     if (!username) {
       resultValue.textContent = '-- messages';
@@ -186,32 +180,30 @@ export function renderSocialActivity(target) {
     resultValue.textContent = 'Searching...';
 
     try {
-      let data;
-
       if (network === 'telegram') {
-        data = await findTelegramUser(username);
-        if (data?.error) {
-          resultValue.textContent = `Not found: ${username}`;
+        const data = await findTelegramUser(username);
+        if (data && data.error) {
+          resultValue.textContent = `Not found in Telegram: ${username}`;
           return;
         }
-        resultValue.textContent = ${data.messages ?? 0} messages for ${data.username ?? username} on Telegram;
+        resultValue.textContent = `${data?.messages ?? 0} messages for ${data?.username ?? username} on Telegram`;
         return;
       }
 
-    if (network === 'discord') {
-        data = await findDiscordUser(username);
-        if (data?.error) {
-          resultValue.textContent = Not found in Discord: ${username};
+      if (network === 'discord') {
+        const data = await findDiscordUser(username);
+        if (data && data.error) {
+          resultValue.textContent = `Not found in Discord: ${username}`;
           return;
         }
-        resultValue.textContent = ${data.messages ?? 0} messages for ${data.username ?? username} on Discord;
+        resultValue.textContent = `${data?.messages ?? 0} messages for ${data?.username ?? username} on Discord`;
         return;
       }
 
-      resultValue.textContent = 0 messages for ${username} on X;
+      resultValue.textContent = `0 messages for ${username} on X`;
     } catch (e) {
       console.error(e);
-      resultValue.textContent = Search error (check API / CORS);
+      resultValue.textContent = 'Search error (check API / CORS)';
     }
   }
 
@@ -219,8 +211,7 @@ export function renderSocialActivity(target) {
   searchBtn.addEventListener('click', handleSearch);
 
   return () => {
-    isMounted = false;
+    mounted = false;
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
-
