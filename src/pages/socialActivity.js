@@ -1,5 +1,5 @@
 import { createEl } from '../utils/dom.js';
-import { getTelegramTop, getDiscordTop, findTelegramUser, findDiscordUser } from '../api.js';
+import { getTelegramTop, getDiscordTop, getCommunityStats, findTelegramUser, findDiscordUser } from '../api.js';
 
 function buildLeaderboardCard(board) {
   const entriesHtml = board.entries
@@ -215,4 +215,5 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
