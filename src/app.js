@@ -16,18 +16,21 @@ const routes = {
 
 let currentCleanup = null;
 let sidebarApi = null;
+
 const mainOutlet = document.getElementById('page-container');
 const sidebarEl = document.getElementById('sidebar');
 
 function init() {
   initLoginModal();
+
   sidebarApi = renderSidebar(sidebarEl, { onNavigate: handleRouteChange });
   window.addEventListener('hashchange', handleRouteChange);
 
- if (!window.location.hash || !routes[window.location.hash]) {
-  window.location.hash = '#map';
-}
-handleRouteChange();
+  if (!window.location.hash  !routes[window.location.hash]) {
+    window.location.hash = '#map';
+  }
+
+  handleRouteChange();
 }
 
 function handleRouteChange() {
@@ -44,6 +47,7 @@ function handleRouteChange() {
   }
 
   sidebarApi?.setActive(hash);
+
   const cleanup = route.render(mainOutlet) || null;
   currentCleanup = cleanup;
 }
@@ -57,4 +61,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-
