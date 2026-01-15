@@ -1,72 +1,68 @@
 export const API_BASE = "https://bulkhubdatabase-production.up.railway.app";
 
-async function toJson(res) {
+async function request(path, options = {}) {
+  const url = `${API_BASE}${path}`;
+
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "accept": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
   const text = await res.text();
   let data;
   try {
-    data = JSON.parse(text);
+    data = text ? JSON.parse(text) : null;
   } catch (e) {
     data = { error: "Invalid JSON from API", status: res.status, raw: text };
   }
 
   if (!res.ok) {
-    return { ...data, status: res.status, ok: false };
+    // чтобы в консоли было видно, что реально вернул бекенд
+    throw new Error(
+      `API ${res.status} ${res.statusText} on ${path}: ${typeof data === "string" ? data : JSON.stringify(data)}`
+    );
   }
+
   return data;
 }
 
-async function get(path, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "GET",
-    ...opts,
-  });
-  return toJson(res);
-}
-
-async function post(path, opts = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
-  return toJson(res);
-}
-
-// ----- COMMUNITY -----
+// --- community / old endpoints ---
 export async function getTelegramTop(limit = 15) {
-  return get(`/telegram/top/${limit}`);
+  return request(`/telegram/top/${limit}`);
 }
 
 export async function getDiscordTop(limit = 15) {
-  return get(`/discord/top/${limit}`);
+  return request(`/discord/top/${limit}`);
 }
 
 export async function findTelegramUser(username) {
-  return get(`/tg/${encodeURIComponent(username)}`);
+  return request(`/tg/${encodeURIComponent(username)}`);
 }
 
 export async function findDiscordUser(username) {
-  return get(`/dc/${encodeURIComponent(username)}`);
+  return request(`/dc/${encodeURIComponent(username)}`);
 }
 
 export async function getCommunityStats() {
-  return get(`/community/stats`);
+  return request(`/community/stats`);
 }
 
-// ----- SANCTUM -----
+// --- NEW: sanctum + solscan ---
 export async function getSanctumLatest() {
-  return get(`/sanctum/latest`);
+  return request(`/sanctum/latest`);
 }
 
 export async function refreshSanctum() {
-  return post(`/sanctum/refresh`);
+  return request(`/sanctum/refresh`, { method: "POST" });
 }
 
-// ----- SOLSCAN -----
 export async function getSolscanLatest(limit = 10) {
-  return get(`/solscan/latest?limit=${encodeURIComponent(limit)}`);
+  return request(`/solscan/latest?limit=${encodeURIComponent(limit)}`);
 }
 
-export async function refreshSolscan(limit_rows = 10) {
-  return post(`/solscan/refresh?limit_rows=${encodeURIComponent(limit_rows)}`);
+export async function refreshSolscan(limitRows = 10) {
+  return request(`/solscan/refresh?limit_rows=${encodeURIComponent(limitRows)}`, { method: "POST" });
 }
