@@ -2,57 +2,64 @@ export const API_BASE = "https://bulkhubdatabase-production.up.railway.app";
 
 async function toJson(res) {
   const text = await res.text();
+  let data;
   try {
-    const data = JSON.parse(text);
-    // если API вернул ошибку в json
-    if (!res.ok) {
-      return { error: data?.error || "API error", status: res.status, raw: data };
-    }
-    return data;
+    data = text ? JSON.parse(text) : null;
   } catch (e) {
-    return { error: "Invalid JSON from API", status: res.status, raw: text };
+    data = { error: "Invalid JSON from API", status: res.status, raw: text };
   }
+
+  // Если сервер вернул ошибку — вернем объект с ошибкой, чтобы UI показал это нормально
+  if (!res.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      statusText: res.statusText,
+      ...((data && typeof data === "object") ? data : { raw: text }),
+    };
+  }
+
+  return data;
 }
 
-// --------------------
-// EXISTING ENDPOINTS
-// --------------------
-export async function getTelegramTop(limit = 15) {
-  const res = await fetch(`${API_BASE}/telegram/top/${limit}`);
+async function apiGet(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "GET",
+    cache: "no-store",
+  });
   return toJson(res);
+}
+
+// --- SOCIAL / COMMUNITY ---
+export async function getTelegramTop(limit = 15) {
+  return apiGet(`/telegram/top/${limit}`);
 }
 
 export async function getDiscordTop(limit = 15) {
-  const res = await fetch(`${API_BASE}/discord/top/${limit}`);
-  return toJson(res);
+  return apiGet(`/discord/top/${limit}`);
 }
 
 export async function findTelegramUser(username) {
-  const res = await fetch(`${API_BASE}/tg/${encodeURIComponent(username)}`);
-  return toJson(res);
+  return apiGet(`/tg/${encodeURIComponent(username)}`);
 }
 
 export async function findDiscordUser(username) {
-  const res = await fetch(`${API_BASE}/dc/${encodeURIComponent(username)}`);
-  return toJson(res);
+  return apiGet(`/dc/${encodeURIComponent(username)}`);
 }
 
 export async function getCommunityStats() {
-  const res = await fetch(`${API_BASE}/community/stats`);
-  return toJson(res);
+  return apiGet(`/community/stats`);
 }
 
-// --------------------
-// NEW: SANCTUM + SOLSCAN
-// --------------------
-export async function getSanctumLatest() {
-  // ожидаем { fetched_at, total_staked, bulk_to_sol, total_holders }
-  const res = await fetch(`${API_BASE}/api/sanctum/latest`);
-  return toJson(res);
+// --- STAKE (SANCTUM + SOLSCAN) ---
+// Эти эндпоинты должны существовать на бекенде:
+//   GET /sanctum/latest
+//   GET /solscan/latest/10   (или любой лимит)
+export async function getLatestSanctum() {
+  return apiGet(`/sanctum/latest`);
 }
 
-export async function getSolscanLatest(limit = 10) {
-  // ожидаем { items: [...] }
-  const res = await fetch(`${API_BASE}/api/solscan/latest?limit=${encodeURIComponent(limit)}`);
-  return toJson(res);
+export async function getLatestSolscan(limit = 10) {
+  const safe = Math.max(1, Math.min(50, Number(limit) || 10));
+  return apiGet(`/solscan/latest/${safe}`);
 }
