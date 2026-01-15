@@ -1,5 +1,5 @@
 import { createEl } from '../utils/dom.js';
-import { getLatestSanctum, getLatestSolscan } from '../api/api.js';
+import { getLatestSanctum, getLatestSolscan } from '../api.js';
 
 function safeText(v, fallback = '—') {
   if (v === null || v === undefined) return fallback;
@@ -7,48 +7,35 @@ function safeText(v, fallback = '—') {
   return s ? s : fallback;
 }
 
+function shortAddr(a) {
+  if (!a) return '';
+  const s = String(a);
+  return s.length > 12 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
+}
+
 function formatTxDetail(tx) {
   const action = safeText(tx.action, 'TRANSFER');
-  const fromAddr = safeText(tx.from_address, '');
-  const toAddr = safeText(tx.to_address, '');
-
-  const short = (a) => (a && a.length > 10 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a);
-  const fromS = short(fromAddr);
-  const toS = short(toAddr);
-
-  if (fromS && toS) return `${action}: ${fromS} → ${toS}`;
+  const fromA = shortAddr(tx.from_address);
+  const toA = shortAddr(tx.to_address);
+  if (fromA && toA) return `${action}: ${fromA} → ${toA}`;
   return action;
 }
 
 function formatTxAmount(tx) {
-  const amt = tx.amount ?? null;
   const token = safeText(tx.token, 'BULK');
-
+  const amt = tx.amount;
   if (amt === null || amt === undefined) return `— ${token}`;
   return `${amt} ${token}`;
 }
 
 function formatTxTime(tx) {
-  // time у тебя хранится TEXT: может быть ISO, может быть “2 minutes ago”, поэтому просто покажем как есть
+  // time у тебя TEXT, просто показываем как есть
   return safeText(tx.time, '—');
 }
 
 export function renderStakeInformation(target) {
   target.innerHTML = '';
   const wrapper = createEl('div', { className: 'page-shell' });
-
-  const tabs = [
-    { key: 'total_staked', title: 'Total staked', description: 'BulkSOL locked' },
-    { key: 'bulk_to_sol', title: '1 BulkSOL =', description: 'SOL equivalent' },
-    { key: 'total_holders', title: 'Total holders', description: 'Wallets holding BulkSOL' },
-  ];
-
-  const mockTransactions = Array.from({ length: 10 }, (_, idx) => ({
-    id: `tx-${idx + 1}`,
-    time: '--:--',
-    detail: 'Loading…',
-    amount: '—',
-  }));
 
   wrapper.innerHTML = `
     <div class="page-header">
@@ -60,13 +47,23 @@ export function renderStakeInformation(target) {
     </div>
 
     <section class="stake-tabs">
-      ${tabs.map((tab) => `
-        <article class="stake-tab" data-bind-metric="${tab.key}">
-          <p class="stake-tab__label">${tab.title}</p>
-          <p class="stake-tab__value" data-bind-value>—</p>
-          <p class="stake-tab__description">${tab.description}</p>
-        </article>
-      `).join('')}
+      <article class="stake-tab" data-bind-metric="total_staked">
+        <p class="stake-tab__label">Total staked</p>
+        <p class="stake-tab__value" data-bind-value>—</p>
+        <p class="stake-tab__description">BulkSOL locked</p>
+      </article>
+
+      <article class="stake-tab" data-bind-metric="bulk_to_sol">
+        <p class="stake-tab__label">1 BulkSOL =</p>
+        <p class="stake-tab__value" data-bind-value>—</p>
+        <p class="stake-tab__description">SOL equivalent</p>
+      </article>
+
+      <article class="stake-tab" data-bind-metric="total_holders">
+        <p class="stake-tab__label">Total holders</p>
+        <p class="stake-tab__value" data-bind-value>—</p>
+        <p class="stake-tab__description">Wallets holding BulkSOL</p>
+      </article>
     </section>
 
     <section class="stake-transactions">
@@ -82,11 +79,11 @@ export function renderStakeInformation(target) {
       </div>
 
       <ul class="stake-transactions__list" data-bind-transactions>
-        ${mockTransactions.map((tx) => `
-          <li class="stake-transaction" data-transaction-id="${tx.id}">
-            <span class="stake-transaction__time">${tx.time}</span>
-            <span class="stake-transaction__detail">${tx.detail}</span>
-            <span class="stake-transaction__amount">${tx.amount}</span>
+        ${Array.from({ length: 10 }).map(() => `
+          <li class="stake-transaction">
+            <span class="stake-transaction__time">—</span>
+            <span class="stake-transaction__detail">Loading…</span>
+            <span class="stake-transaction__amount">—</span>
           </li>
         `).join('')}
       </ul>
@@ -130,7 +127,7 @@ export function renderStakeInformation(target) {
     `).join('');
   }
 
-  async function loadStakeData() {
+  async function loadStake() {
     statusEl.textContent = 'Loading…';
 
     const [sanctum, solscan] = await Promise.all([
@@ -138,7 +135,6 @@ export function renderStakeInformation(target) {
       getLatestSolscan(10),
     ]);
 
-    // Если бек вернул {ok:false,...} — покажем в статусе
     if (sanctum && sanctum.ok === false) {
       statusEl.textContent = `Sanctum error: ${sanctum.status || ''}`;
     } else {
@@ -158,19 +154,15 @@ export function renderStakeInformation(target) {
 
   async function handleRefresh() {
     try {
-      await loadStakeData();
+      await loadStake();
     } catch (e) {
       console.error(e);
-      statusEl.textContent = 'Failed to fetch (check backend 502/CORS)';
+      statusEl.textContent = 'Failed to fetch (backend 502 / CORS)';
     }
   }
 
   refreshBtn.addEventListener('click', handleRefresh);
-
-  // авто-загрузка при заходе на страницу
   handleRefresh();
 
-  return () => {
-    refreshBtn.removeEventListener('click', handleRefresh);
-  };
+  return () => refreshBtn.removeEventListener('click', handleRefresh);
 }
