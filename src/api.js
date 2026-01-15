@@ -4,61 +4,69 @@ async function toJson(res) {
   const text = await res.text();
   let data;
   try {
-    data = text ? JSON.parse(text) : null;
+    data = JSON.parse(text);
   } catch (e) {
     data = { error: "Invalid JSON from API", status: res.status, raw: text };
   }
 
-  // если бек вернул не 2xx — вернем структурированную ошибку
   if (!res.ok) {
-    return {
-      ok: false,
-      status: res.status,
-      statusText: res.statusText,
-      ...(data && typeof data === "object" ? data : { raw: text }),
-    };
+    return { ...data, status: res.status, ok: false };
   }
-
   return data;
 }
 
-async function apiGet(path) {
-  const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
+async function get(path, opts = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "GET",
-    cache: "no-store",
+    ...opts,
   });
   return toJson(res);
 }
 
-// ---------- COMMUNITY ----------
+async function post(path, opts = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(opts.headers || {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  return toJson(res);
+}
+
+// ----- COMMUNITY -----
 export async function getTelegramTop(limit = 15) {
-  return apiGet(`/telegram/top/${encodeURIComponent(limit)}`);
+  return get(`/telegram/top/${limit}`);
 }
 
 export async function getDiscordTop(limit = 15) {
-  return apiGet(`/discord/top/${encodeURIComponent(limit)}`);
+  return get(`/discord/top/${limit}`);
 }
 
 export async function findTelegramUser(username) {
-  return apiGet(`/tg/${encodeURIComponent(username)}`);
+  return get(`/tg/${encodeURIComponent(username)}`);
 }
 
 export async function findDiscordUser(username) {
-  return apiGet(`/dc/${encodeURIComponent(username)}`);
+  return get(`/dc/${encodeURIComponent(username)}`);
 }
 
 export async function getCommunityStats() {
-  return apiGet(`/community/stats`);
+  return get(`/community/stats`);
 }
 
-// ---------- STAKE (Sanctum + Solscan) ----------
-export async function getLatestSanctum() {
-  return apiGet(`/sanctum/latest`);
+// ----- SANCTUM -----
+export async function getSanctumLatest() {
+  return get(`/sanctum/latest`);
 }
 
-// ВАЖНО: у тебя на бекенде /solscan/latest?limit=10
-export async function getLatestSolscan(limit = 10) {
-  const safe = Math.max(1, Math.min(200, Number(limit) || 10));
-  return apiGet(`/solscan/latest?limit=${safe}`);
+export async function refreshSanctum() {
+  return post(`/sanctum/refresh`);
+}
+
+// ----- SOLSCAN -----
+export async function getSolscanLatest(limit = 10) {
+  return get(`/solscan/latest?limit=${encodeURIComponent(limit)}`);
+}
+
+export async function refreshSolscan(limit_rows = 10) {
+  return post(`/solscan/refresh?limit_rows=${encodeURIComponent(limit_rows)}`);
 }
