@@ -9,13 +9,13 @@ async function toJson(res) {
     data = { error: "Invalid JSON from API", status: res.status, raw: text };
   }
 
-  // Если сервер вернул ошибку — вернем объект с ошибкой, чтобы UI показал это нормально
+  // если бек вернул не 2xx — вернем структурированную ошибку
   if (!res.ok) {
     return {
       ok: false,
       status: res.status,
       statusText: res.statusText,
-      ...((data && typeof data === "object") ? data : { raw: text }),
+      ...(data && typeof data === "object" ? data : { raw: text }),
     };
   }
 
@@ -23,20 +23,21 @@ async function toJson(res) {
 }
 
 async function apiGet(path) {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
     method: "GET",
     cache: "no-store",
   });
   return toJson(res);
 }
 
-// --- SOCIAL / COMMUNITY ---
+// ---------- COMMUNITY ----------
 export async function getTelegramTop(limit = 15) {
-  return apiGet(`/telegram/top/${limit}`);
+  return apiGet(`/telegram/top/${encodeURIComponent(limit)}`);
 }
 
 export async function getDiscordTop(limit = 15) {
-  return apiGet(`/discord/top/${limit}`);
+  return apiGet(`/discord/top/${encodeURIComponent(limit)}`);
 }
 
 export async function findTelegramUser(username) {
@@ -51,15 +52,13 @@ export async function getCommunityStats() {
   return apiGet(`/community/stats`);
 }
 
-// --- STAKE (SANCTUM + SOLSCAN) ---
-// Эти эндпоинты должны существовать на бекенде:
-//   GET /sanctum/latest
-//   GET /solscan/latest/10   (или любой лимит)
+// ---------- STAKE (Sanctum + Solscan) ----------
 export async function getLatestSanctum() {
   return apiGet(`/sanctum/latest`);
 }
 
+// ВАЖНО: у тебя на бекенде /solscan/latest?limit=10
 export async function getLatestSolscan(limit = 10) {
-  const safe = Math.max(1, Math.min(50, Number(limit) || 10));
-  return apiGet(`/solscan/latest/${safe}`);
+  const safe = Math.max(1, Math.min(200, Number(limit) || 10));
+  return apiGet(`/solscan/latest?limit=${safe}`);
 }
