@@ -13,6 +13,51 @@ function safeText(v, fallback = "—") {
   return s ? s : fallback;
 }
 
+function solscanTimeToAgeSeconds(timeText) {
+  if (!timeText) return Number.POSITIVE_INFINITY;
+
+  const t = String(timeText).toLowerCase().trim();
+
+  // "just now"
+  if (t.includes("just now")) return 0;
+
+  // "53 mins ago", "1 hr ago", "2 hrs ago", "14 min ago", etc.
+  const m = t.match(
+    /(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago/
+  );
+
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+
+    const mult =
+      unit.startsWith("sec") ? 1 :
+      unit.startsWith("min") ? 60 :
+      unit.startsWith("hr") ? 3600 :
+      unit.startsWith("day") ? 86400 :
+      unit.startsWith("week") ? 604800 :
+      unit.startsWith("month") ? 2592000 :
+      31536000; // year
+
+    return n * mult;
+  }
+
+  // Если вдруг станет ISO/Date строкой — тоже поддержим
+  const parsed = Date.parse(timeText);
+  if (!Number.isNaN(parsed)) {
+    return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+  }
+
+  return Number.POSITIVE_INFINITY;
+}
+
+function sortTransactionsNewestFirst(txs) {
+  return [...(txs || [])].sort((a, b) => {
+    // меньше "age" = более новая
+    return solscanTimeToAgeSeconds(a.time) - solscanTimeToAgeSeconds(b.time);
+  });
+}
+
 function formatAmount(amount, token) {
   if (amount === null || amount === undefined || amount === "") return `— ${token || ""}`.trim();
   return `${amount} ${token || ""}`.trim();
@@ -141,8 +186,8 @@ export function renderStakeInformation(target) {
 
     // 2) Solscan tx list
     try {
-      const txs = await getSolscanLatest(10);
-      renderTransactions(txs);
+      const txsRaw = await getSolscanLatest(10);
+      const txs = sortTransactionsNewestFirst(txsRaw);
     } catch (e) {
       renderTransactions([]);
       setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
@@ -177,3 +222,4 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
+
