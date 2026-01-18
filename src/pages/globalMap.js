@@ -32,8 +32,6 @@ const CONFIG = {
 const STORAGE_KEY = 'bulkhub_user_location';
 
 let topojson = null;
-let d3geo = null;
-
 let scene;
 let camera;
 let renderer;
@@ -67,39 +65,6 @@ let resizeObserver;
 let currentLocation = null;
 let handleLocationSubmit;
 let handleChangeLocation;
-
-// ===== helpers (dateline-safe) =====
-const wrapLng = (lng) => ((((lng + 180) % 360) + 360) % 360) - 180;
-
-function splitRingOnDateline(ring) {
-  // ring: [ [lon, lat], [lon, lat], ... ]
-  // return array of parts (each part is array of [lon, lat]) split where lon jumps too much
-  const parts = [];
-  let current = [];
-  let prevLon = null;
-
-  for (let i = 0; i < ring.length; i++) {
-    const coord = ring[i];
-    if (!coord || coord.length < 2) continue;
-
-    const lon = wrapLng(coord[0]);
-    const lat = coord[1];
-
-    if (prevLon !== null) {
-      const d = Math.abs(lon - prevLon);
-      if (d > 180) {
-        if (current.length > 1) parts.push(current);
-        current = [];
-      }
-    }
-
-    current.push([lon, lat]);
-    prevLon = lon;
-  }
-
-  if (current.length > 1) parts.push(current);
-  return parts;
-}
 
 export async function initGlobalMap(target) {
   mountEl = target;
@@ -162,9 +127,6 @@ export function destroyGlobalMap() {
   canvasHost = null;
   labelsHost = null;
 
-  topojson = null;
-  d3geo = null;
-
   if (locationForm && handleLocationSubmit) {
     locationForm.removeEventListener('submit', handleLocationSubmit);
   }
@@ -188,8 +150,6 @@ export function destroyGlobalMap() {
 
 async function init() {
   topojson = await loadTopoJson();
-  d3geo = await loadD3Geo(); // ✅ для geoContains (чинит даталайн/смещения)
-
   setupScene();
   setupCamera();
   setupRenderers();
@@ -279,18 +239,6 @@ async function loadTopoJson() {
   } catch (e) {
     await loadScript('https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js');
     return window.topojson;
-  }
-}
-
-// ✅ d3-geo для корректного contains по MultiPolygon и даталайн ±180
-async function loadD3Geo() {
-  try {
-    const mod = await import('https://esm.sh/d3-geo@3.1.1');
-    return mod;
-  } catch (e) {
-    await loadScript('https://unpkg.com/d3-geo@3.1.1/dist/d3-geo.min.js');
-    // UMD обычно цепляется как window.d3
-    return window.d3 || null;
   }
 }
 
@@ -456,7 +404,6 @@ async function loadAndCreateLandPoints() {
 
 async function loadCountryBorders() {
   try {
-    // Если хотите строго “без CDN”, можете убрать этот блок и borders не будут рисоваться.
     const response = await fetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json');
     const topoData = await response.json();
     const countries = topojson.feature(topoData, topoData.objects.countries);
@@ -478,8 +425,6 @@ function createCountryBorders(countriesGeoJSON) {
 
   countriesGeoJSON.features.forEach((feature) => {
     const geometry = feature.geometry;
-    if (!geometry) return;
-
     if (geometry.type === 'Polygon') {
       createBorderLine(geometry.coordinates, bordersGroup, material);
     } else if (geometry.type === 'MultiPolygon') {
@@ -494,29 +439,19 @@ function createCountryBorders(countriesGeoJSON) {
   globeGroup.add(bordersGroup);
 }
 
-// ✅ FIX #1: убрали i += 2 (это и давало “линию/дугу”)
-// ✅ FIX #2: режем контуры на даталайне, чтобы не рисовать “мост” через весь глобус
 function createBorderLine(polygonCoords, group, material) {
   polygonCoords.forEach((ring) => {
-    const parts = splitRingOnDateline(ring);
-
-    parts.forEach((part) => {
-      const points = [];
-
-      for (let i = 0; i < part.length; i++) {
-        const [lon, lat] = part[i];
-        const pos = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.01);
-        points.push(pos);
-      }
-
-      // закрываем часть аккуратно (без даталайна)
-      if (points.length > 2) {
-        points.push(points[0].clone());
-        const geometry = new THREE.BufferGeometry().setFromPoints(points);
-        const line = new THREE.Line(geometry, material);
-        group.add(line);
-      }
-    });
+    const points = [];
+    for (let i = 0; i < ring.length; i += 2) {
+      const [lon, lat] = ring[i];
+      const pos = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.01);
+      points.push(pos);
+    }
+    if (points.length > 2) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geometry, material);
+      group.add(line);
+    }
   });
 }
 
@@ -529,8 +464,6 @@ function createLandPoints(landGeoJSON) {
     for (let lon = -180; lon <= 180; lon += step) {
       const jitteredLat = lat + (Math.random() - 0.5) * step * 0.9 + rowOffset * 0.3;
       const jitteredLon = lon + (Math.random() - 0.5) * step * 0.9;
-
-      // ✅ даталайн-safe проверка суши
       if (pointInLand(jitteredLon, jitteredLat, landGeoJSON)) {
         const pos = latLonToVector3(jitteredLat, jitteredLon, CONFIG.globe.radius);
         positions.push(pos.x, pos.y, pos.z);
@@ -591,17 +524,7 @@ function createFallbackPoints() {
 }
 
 function pointInLand(lon, lat, landGeoJSON) {
-  // ✅ Самый надёжный вариант (правильно работает на ±180)
-  if (d3geo && typeof d3geo.geoContains === 'function') {
-    try {
-      return d3geo.geoContains(landGeoJSON, [wrapLng(lon), lat]);
-    } catch (e) {
-      // fallback ниже
-    }
-  }
-
-  // ---- fallback: старый ray-casting (может глючить на даталайне) ----
-  const point = [wrapLng(lon), lat];
+  const point = [lon, lat];
 
   function pointInPolygon(testPoint, polygon) {
     let inside = false;
@@ -619,7 +542,6 @@ function pointInLand(lon, lat, landGeoJSON) {
   }
 
   function checkGeometry(geometry) {
-    if (!geometry) return false;
     if (geometry.type === 'Polygon') {
       return pointInPolygon(point, geometry.coordinates[0]);
     }
