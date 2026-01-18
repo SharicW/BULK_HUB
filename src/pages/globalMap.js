@@ -27,7 +27,7 @@ const CONFIG = {
   },
   animation: {
     rotateToUserDuration: 2000,
-    targetFps: 30,            // throttling FPS
+    targetFps: 60,            // throttling FPS
   },
   quality: {
     landMaskW: 1024,
@@ -1145,3 +1145,4 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
