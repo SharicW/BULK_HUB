@@ -6,10 +6,9 @@ import { createEl } from '../utils/dom.js';
 const CONFIG = {
   globe: {
     radius: 5,
-    segments: 64,
+    segments: 48,              // было 64 — чуть легче, визуально почти без разницы
     rotationSpeed: 0.0003,
     pointSize: 0.055,
-    pointDensity: 0.5,
   },
   camera: {
     fov: 45,
@@ -23,9 +22,22 @@ const CONFIG = {
     gold: 0xffffff,
     globeDark: 0x0d0d10,
     background: 0x0a0a0c,
+    border: 0xaaaaaa,
+    user: 0xf2c14e,
   },
   animation: {
     rotateToUserDuration: 2000,
+    targetFps: 30,            // throttling FPS
+  },
+  quality: {
+    landMaskW: 1024,
+    landMaskH: 512,
+    landPointsHigh: 26000,    // ~ПК/норм
+    landPointsLow: 14000,     // ~слабые/мобилки
+    borderDecimateHigh: 1,    // 1 = без пропуска точек
+    borderDecimateLow: 2,     // 2 = пропускаем через одну (легче)
+    pixelRatioHigh: 2,
+    pixelRatioLow: 1.5,
   },
 };
 
@@ -41,9 +53,11 @@ let globeGroup;
 let landPoints;
 let countryBorders;
 let userMarker = null;
+
 let isUserInteracting = false;
 let lastInteractionTime = 0;
 const interactionCooldown = 2000;
+
 const labelObjects = [];
 let animationId = null;
 let isActive = false;
@@ -52,6 +66,7 @@ let mountEl;
 let stageEl;
 let canvasHost;
 let labelsHost;
+
 let locationPanel;
 let locationForm;
 let cityInput;
@@ -61,10 +76,24 @@ let changeLocationBtn;
 let locationStatus;
 let locationSummary;
 let errorMsg;
+
 let resizeObserver;
 let currentLocation = null;
 let handleLocationSubmit;
 let handleChangeLocation;
+
+let glowTexture = null;
+
+// visibility/perf helpers
+let isInView = true;
+let isPaused = false;
+let lastRenderTime = 0;
+let labelTick = 0;
+let intersectionObserver = null;
+let visibilityHandler = null;
+
+// derived quality
+let QUALITY = null;
 
 export async function initGlobalMap(target) {
   mountEl = target;
@@ -77,6 +106,9 @@ export async function initGlobalMap(target) {
     lastInteractionTime = 0;
     isUserInteracting = false;
     isActive = true;
+
+    QUALITY = detectQuality();
+
     await init();
     return destroyGlobalMap;
   } catch (err) {
@@ -87,15 +119,27 @@ export async function initGlobalMap(target) {
 }
 
 export function destroyGlobalMap() {
+  isActive = false;
+
   window.removeEventListener('resize', handleResize);
   resizeObserver?.disconnect();
-  isActive = false;
+
+  if (intersectionObserver) {
+    intersectionObserver.disconnect();
+    intersectionObserver = null;
+  }
+  if (visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler);
+    visibilityHandler = null;
+  }
+
   if (animationId) {
     cancelAnimationFrame(animationId);
     animationId = null;
   }
 
   if (controls) controls.dispose();
+
   if (renderer) {
     renderer.dispose();
     if (renderer.domElement?.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
@@ -103,6 +147,7 @@ export function destroyGlobalMap() {
   if (labelRenderer?.domElement?.parentNode) {
     labelRenderer.domElement.parentNode.removeChild(labelRenderer.domElement);
   }
+
   if (scene) {
     scene.traverse((child) => {
       if (child.geometry) child.geometry.dispose();
@@ -110,7 +155,15 @@ export function destroyGlobalMap() {
         if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
         else child.material.dispose();
       }
+      if (child.element && child.element.parentNode) {
+        child.element.parentNode.removeChild(child.element);
+      }
     });
+  }
+
+  if (glowTexture) {
+    glowTexture.dispose?.();
+    glowTexture = null;
   }
 
   userMarker = null;
@@ -133,8 +186,10 @@ export function destroyGlobalMap() {
   if (changeLocationBtn && handleChangeLocation) {
     changeLocationBtn.removeEventListener('click', handleChangeLocation);
   }
+
   handleLocationSubmit = null;
   handleChangeLocation = null;
+
   locationPanel = null;
   locationForm = null;
   cityInput = null;
@@ -145,11 +200,13 @@ export function destroyGlobalMap() {
   locationSummary = null;
   errorMsg = null;
   currentLocation = null;
+
   labelObjects.length = 0;
 }
 
 async function init() {
   topojson = await loadTopoJson();
+
   setupScene();
   setupCamera();
   setupRenderers();
@@ -160,13 +217,33 @@ async function init() {
   scene.add(globeGroup);
 
   createGlobeSphere();
-  await loadAndCreateLandPoints();
+  await loadAndCreateLandPoints(); // маска + равномерные точки
   await loadLabels();
 
-  animate();
   setupLocationPanel();
   checkSavedLocation();
   startResizeWatcher();
+  startVisibilityWatchers();
+
+  animate();
+}
+
+function detectQuality() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const cores = navigator.hardwareConcurrency || 4;
+  const mem = navigator.deviceMemory || 4;
+
+  // очень грубая эвристика: слабое устройство = меньше точек, меньше dpr, проще borders
+  const low = cores <= 4 || mem <= 4 || dpr >= 2.5;
+
+  return {
+    isLow: low,
+    landPoints: low ? CONFIG.quality.landPointsLow : CONFIG.quality.landPointsHigh,
+    borderDecimate: low ? CONFIG.quality.borderDecimateLow : CONFIG.quality.borderDecimateHigh,
+    pixelRatioCap: low ? CONFIG.quality.pixelRatioLow : CONFIG.quality.pixelRatioHigh,
+    maskW: CONFIG.quality.landMaskW,
+    maskH: CONFIG.quality.landMaskH,
+  };
 }
 
 function buildLayout() {
@@ -260,21 +337,27 @@ function setupScene() {
 function setupCamera() {
   const { width, height } = getStageSize();
   const aspect = width / height;
-  camera = new THREE.PerspectiveCamera(
-    CONFIG.camera.fov,
-    aspect,
-    CONFIG.camera.near,
-    CONFIG.camera.far,
-  );
+  camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, aspect, CONFIG.camera.near, CONFIG.camera.far);
   camera.position.z = CONFIG.camera.initialDistance;
 }
 
 function setupRenderers() {
   const { width, height } = getStageSize();
+  const dpr = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatioCap);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  // antialias не всегда стоит включать на высоком dpr
+  const useAA = dpr <= 1.5;
+
+  renderer = new THREE.WebGLRenderer({
+    antialias: useAA,
+    alpha: true,
+    powerPreference: 'high-performance',
+    depth: true,
+    stencil: false,
+  });
+
   renderer.setSize(width, height);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(dpr);
   canvasHost.appendChild(renderer.domElement);
 
   labelRenderer = new CSS2DRenderer();
@@ -288,7 +371,7 @@ function setupRenderers() {
 function setupControls() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+  controls.dampingFactor = 0.06;
   controls.rotateSpeed = 0.5;
   controls.zoomSpeed = 0.8;
   controls.minDistance = CONFIG.camera.minDistance;
@@ -306,45 +389,36 @@ function setupControls() {
 }
 
 function setupLights() {
-  const ambientLight = new THREE.AmbientLight(0x404050, 0.5);
+  const ambientLight = new THREE.AmbientLight(0x404050, 0.55);
   scene.add(ambientLight);
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.32);
   directionalLight.position.set(5, 3, 5);
   scene.add(directionalLight);
 }
 
 function createGlobeSphere() {
-  const geometry = new THREE.SphereGeometry(
-    CONFIG.globe.radius - 0.03,
-    CONFIG.globe.segments,
-    CONFIG.globe.segments,
-  );
+  const geometry = new THREE.SphereGeometry(CONFIG.globe.radius - 0.03, CONFIG.globe.segments, CONFIG.globe.segments);
 
   const material = new THREE.MeshPhongMaterial({
     color: CONFIG.colors.globeDark,
-    transparent: false,
-    shininess: 5,
+    shininess: 6,
     depthWrite: true,
   });
 
   const sphere = new THREE.Mesh(geometry, material);
   sphere.renderOrder = 0;
   globeGroup.add(sphere);
+
   createAtmosphereGlow();
 }
 
 function createAtmosphereGlow() {
-  const glowGeometry = new THREE.SphereGeometry(
-    CONFIG.globe.radius + 0.1,
-    CONFIG.globe.segments,
-    CONFIG.globe.segments,
-  );
+  const glowGeometry = new THREE.SphereGeometry(CONFIG.globe.radius + 0.1, CONFIG.globe.segments, CONFIG.globe.segments);
 
   const glowMaterial = new THREE.ShaderMaterial({
     uniforms: {
       glowColor: { value: new THREE.Color(0x1a1a25) },
-      viewVector: { value: camera.position },
     },
     vertexShader: `
       varying vec3 vNormal;
@@ -367,35 +441,43 @@ function createAtmosphereGlow() {
     side: THREE.BackSide,
     blending: THREE.AdditiveBlending,
     transparent: true,
+    depthWrite: false,
   });
 
   const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+  glowMesh.renderOrder = 1;
   globeGroup.add(glowMesh);
 }
 
 async function loadAndCreateLandPoints() {
   try {
     let topoData;
+
+    // 1) local
     try {
       const localResponse = await fetch('./data/land-110m.json');
       if (localResponse.ok) {
         const text = await localResponse.text();
-        if (text.trim().length > 10) {
-          topoData = JSON.parse(text);
-        }
+        if (text.trim().length > 10) topoData = JSON.parse(text);
       }
     } catch (e) {
-      console.log('Local land data not found, using CDN...');
+      // ignore
     }
 
+    // 2) CDN fallback
     if (!topoData) {
       const cdnResponse = await fetch('https://unpkg.com/world-atlas@2.0.2/land-110m.json');
       topoData = await cdnResponse.json();
     }
 
+    // GeoJSON land
     const landGeoJSON = topojson.feature(topoData, topoData.objects.land);
-    createLandPoints(landGeoJSON);
-    await loadCountryBorders();
+
+    // Быстро строим маску земли (canvas) и по ней генерим точки равномерно по сфере
+    const mask = buildLandMask(landGeoJSON, QUALITY.maskW, QUALITY.maskH);
+    createLandPointsFromMask(mask, QUALITY.maskW, QUALITY.maskH, QUALITY.landPoints);
+
+    await loadCountryBorders(); // mesh -> один LineSegments
   } catch (error) {
     console.error('Failed to load land data:', error);
     createFallbackPoints();
@@ -406,78 +488,215 @@ async function loadCountryBorders() {
   try {
     const response = await fetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json');
     const topoData = await response.json();
-    const countries = topojson.feature(topoData, topoData.objects.countries);
-    createCountryBorders(countries);
+
+    // ВАЖНО: topojson.mesh сильно быстрее, чем feature->каждая страна->линии
+    const mesh = topojson.mesh(topoData, topoData.objects.countries, (a, b) => a !== b);
+    createCountryBordersFromMesh(mesh);
   } catch (error) {
     console.warn('Failed to load country borders:', error);
   }
 }
 
-function createCountryBorders(countriesGeoJSON) {
+function createCountryBordersFromMesh(meshGeoJSON) {
+  if (!meshGeoJSON || !meshGeoJSON.coordinates) return;
+
+  const dec = QUALITY.borderDecimate;
+
+  const positions = [];
+  const r = CONFIG.globe.radius + 0.01;
+
+  // meshGeoJSON = MultiLineString
+  const lines = meshGeoJSON.coordinates;
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
+    if (!line || line.length < 2) continue;
+
+    // decimate points a bit on low quality
+    for (let i = dec; i < line.length; i += dec) {
+      const a = line[i - dec];
+      const b = line[i];
+      if (!a || !b) continue;
+
+      const p1 = latLonToVector3(a[1], a[0], r);
+      const p2 = latLonToVector3(b[1], b[0], r);
+      positions.push(p1.x, p1.y, p1.z, p2.x, p2.y, p2.z);
+    }
+  }
+
+  if (positions.length < 6) return;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+
   const material = new THREE.LineBasicMaterial({
-    color: 0xaaaaaa,
+    color: CONFIG.colors.border,
     transparent: true,
     opacity: 0.35,
     depthTest: true,
+    depthWrite: false,
   });
 
-  const bordersGroup = new THREE.Group();
-
-  countriesGeoJSON.features.forEach((feature) => {
-    const geometry = feature.geometry;
-    if (geometry.type === 'Polygon') {
-      createBorderLine(geometry.coordinates, bordersGroup, material);
-    } else if (geometry.type === 'MultiPolygon') {
-      geometry.coordinates.forEach((polygon) => {
-        createBorderLine(polygon, bordersGroup, material);
-      });
-    }
-  });
-
-  bordersGroup.renderOrder = 2;
-  countryBorders = bordersGroup;
-  globeGroup.add(bordersGroup);
+  const borders = new THREE.LineSegments(geometry, material);
+  borders.renderOrder = 2;
+  countryBorders = borders;
+  globeGroup.add(borders);
 }
 
-function createBorderLine(polygonCoords, group, material) {
-  polygonCoords.forEach((ring) => {
-    const points = [];
-    for (let i = 0; i < ring.length; i += 2) {
-      const [lon, lat] = ring[i];
-      const pos = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.01);
-      points.push(pos);
-    }
-    if (points.length > 2) {
-      const geometry = new THREE.BufferGeometry().setFromPoints(points);
-      const line = new THREE.Line(geometry, material);
-      group.add(line);
-    }
-  });
-}
+function buildLandMask(landGeoJSON, width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
 
-function createLandPoints(landGeoJSON) {
-  const positions = [];
-  const step = CONFIG.globe.pointDensity;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.clearRect(0, 0, width, height);
 
-  for (let lat = -85; lat <= 85; lat += step) {
-    const rowOffset = (Math.random() - 0.5) * step;
-    for (let lon = -180; lon <= 180; lon += step) {
-      const jitteredLat = lat + (Math.random() - 0.5) * step * 0.9 + rowOffset * 0.3;
-      const jitteredLon = lon + (Math.random() - 0.5) * step * 0.9;
-      if (pointInLand(jitteredLon, jitteredLat, landGeoJSON)) {
-        const pos = latLonToVector3(jitteredLat, jitteredLon, CONFIG.globe.radius);
-        positions.push(pos.x, pos.y, pos.z);
+  ctx.fillStyle = '#fff';
+
+  // equirectangular proj: x = (lon+180)/360 * W, y = (90-lat)/180 * H
+  const proj = (lon, lat) => {
+    const x = ((lon + 180) / 360) * width;
+    const y = ((90 - lat) / 180) * height;
+    return [x, y];
+  };
+
+  const unwrapRing = (ring) => {
+    // Разворачиваем долготные скачки через 180 (антимеридиан)
+    const out = [];
+    let prevLon = ring[0][0];
+    let offset = 0;
+    out.push([prevLon, ring[0][1]]);
+    for (let i = 1; i < ring.length; i++) {
+      const lon = ring[i][0];
+      const lat = ring[i][1];
+      let d = lon - prevLon;
+      if (d > 180) offset -= 360;
+      else if (d < -180) offset += 360;
+      const adjLon = lon + offset;
+      out.push([adjLon, lat]);
+      prevLon = lon;
+    }
+    return out;
+  };
+
+  const drawPolygon = (poly) => {
+    // poly: [outerRing, holeRing1, ...]
+    ctx.beginPath();
+
+    for (let ri = 0; ri < poly.length; ri++) {
+      const ring = poly[ri];
+      if (!ring || ring.length < 3) continue;
+
+      const unwrapped = unwrapRing(ring);
+
+      // рисуем основной путь + копии со сдвигом, чтобы закрыть шов
+      const shifts = [0, -width, width];
+
+      for (let si = 0; si < shifts.length; si++) {
+        const dx = shifts[si];
+        for (let i = 0; i < unwrapped.length; i++) {
+          const [lon, lat] = unwrapped[i];
+          const [x0, y0] = proj(lon, lat);
+          const x = x0 + dx;
+
+          if (i === 0) ctx.moveTo(x, y0);
+          else ctx.lineTo(x, y0);
+        }
+        ctx.closePath();
       }
     }
+
+    // even-odd: чтобы дырки в полигонах (озёра и т.д.) работали корректно
+    ctx.fill('evenodd');
+  };
+
+  const drawGeometry = (geom) => {
+    if (!geom) return;
+    if (geom.type === 'Polygon') {
+      drawPolygon(geom.coordinates);
+    } else if (geom.type === 'MultiPolygon') {
+      for (let i = 0; i < geom.coordinates.length; i++) {
+        drawPolygon(geom.coordinates[i]);
+      }
+    }
+  };
+
+  if (landGeoJSON.type === 'FeatureCollection') {
+    for (let fi = 0; fi < landGeoJSON.features.length; fi++) {
+      drawGeometry(landGeoJSON.features[fi].geometry);
+    }
+  } else if (landGeoJSON.type === 'Feature') {
+    drawGeometry(landGeoJSON.geometry);
+  } else {
+    drawGeometry(landGeoJSON);
+  }
+
+  const img = ctx.getImageData(0, 0, width, height);
+  return img.data; // Uint8ClampedArray
+}
+
+function isLandPixel(maskData, w, h, lon, lat) {
+  // lon [-180..180], lat [-90..90]
+  let u = (lon + 180) / 360;
+  let v = (90 - lat) / 180;
+
+  // wrap u
+  u = ((u % 1) + 1) % 1;
+  v = Math.min(0.999999, Math.max(0, v));
+
+  const x = Math.floor(u * w);
+  const y = Math.floor(v * h);
+  const idx = (y * w + x) * 4;
+
+  // alpha не используем — маска белым по RGB
+  return maskData[idx] > 0;
+}
+
+function createLandPointsFromMask(maskData, w, h, desiredCount) {
+  const positions = [];
+  const r = CONFIG.globe.radius;
+
+  if (!glowTexture) glowTexture = createGlowTexture();
+
+  // Fibonacci sphere (равномерно) — убирает "полосы" и "дырки"
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+  // берём кандидатов больше, потому что океан отсеется
+  const candidates = Math.floor(desiredCount * 2.3);
+
+  let found = 0;
+
+  for (let i = 0; i < candidates && found < desiredCount; i++) {
+    const t = (i + 0.5) / candidates;
+    const y = 1 - 2 * t; // [-1..1]
+    const radiusXZ = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = goldenAngle * i;
+    const x = Math.cos(theta) * radiusXZ;
+    const z = Math.sin(theta) * radiusXZ;
+
+    // convert to lat/lon for mask sampling
+    const lat = Math.asin(y) * (180 / Math.PI);
+    const lon = Math.atan2(z, x) * (180 / Math.PI);
+
+    if (!isLandPixel(maskData, w, h, lon, lat)) continue;
+
+    const p = latLonToVector3(lat, lon, r);
+    positions.push(p.x, p.y, p.z);
+    found++;
+  }
+
+  if (positions.length < 3000) {
+    // на всякий — если вдруг мало нашли (крайне редко)
+    createFallbackPoints();
+    return;
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
 
-  const pointTexture = createGlowTexture();
   const material = new THREE.PointsMaterial({
     size: CONFIG.globe.pointSize,
-    map: pointTexture,
+    map: glowTexture,
     color: CONFIG.colors.gold,
     transparent: true,
     opacity: 1.0,
@@ -494,23 +713,28 @@ function createLandPoints(landGeoJSON) {
 
 function createFallbackPoints() {
   const positions = [];
-  const count = 5000;
+  const count = QUALITY.isLow ? 9000 : 15000;
 
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
   for (let i = 0; i < count; i++) {
-    const phi = Math.acos(-1 + (2 * i) / count);
-    const theta = Math.sqrt(count * Math.PI) * phi;
-    const x = CONFIG.globe.radius * Math.cos(theta) * Math.sin(phi);
-    const y = CONFIG.globe.radius * Math.sin(theta) * Math.sin(phi);
-    const z = CONFIG.globe.radius * Math.cos(phi);
-    positions.push(x, y, z);
+    const t = (i + 0.5) / count;
+    const y = 1 - 2 * t;
+    const rXZ = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = goldenAngle * i;
+    const x = CONFIG.globe.radius * Math.cos(theta) * rXZ;
+    const z = CONFIG.globe.radius * Math.sin(theta) * rXZ;
+    const yy = CONFIG.globe.radius * y;
+    positions.push(x, yy, z);
   }
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
 
+  if (!glowTexture) glowTexture = createGlowTexture();
+
   const material = new THREE.PointsMaterial({
     size: CONFIG.globe.pointSize,
-    map: createGlowTexture(),
+    map: glowTexture,
     color: CONFIG.colors.gold,
     transparent: true,
     opacity: 1.0,
@@ -521,48 +745,6 @@ function createFallbackPoints() {
 
   landPoints = new THREE.Points(geometry, material);
   globeGroup.add(landPoints);
-}
-
-function pointInLand(lon, lat, landGeoJSON) {
-  const point = [lon, lat];
-
-  function pointInPolygon(testPoint, polygon) {
-    let inside = false;
-    const x = testPoint[0];
-    const y = testPoint[1];
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i][0];
-      const yi = polygon[i][1];
-      const xj = polygon[j][0];
-      const yj = polygon[j][1];
-      const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
-
-  function checkGeometry(geometry) {
-    if (geometry.type === 'Polygon') {
-      return pointInPolygon(point, geometry.coordinates[0]);
-    }
-    if (geometry.type === 'MultiPolygon') {
-      for (const polygon of geometry.coordinates) {
-        if (pointInPolygon(point, polygon[0])) return true;
-      }
-    }
-    return false;
-  }
-
-  if (landGeoJSON.type === 'FeatureCollection') {
-    for (const feature of landGeoJSON.features) {
-      if (checkGeometry(feature.geometry)) return true;
-    }
-  } else if (landGeoJSON.type === 'Feature') {
-    return checkGeometry(landGeoJSON.geometry);
-  } else {
-    return checkGeometry(landGeoJSON);
-  }
-  return false;
 }
 
 function createGlowTexture() {
@@ -581,7 +763,11 @@ function createGlowTexture() {
   gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, size, size);
+
   const texture = new THREE.CanvasTexture(canvas);
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
   return texture;
 }
@@ -601,12 +787,14 @@ async function loadLabels() {
 function createLabel(name, lat, lon, size = 1) {
   const labelDiv = document.createElement('div');
   labelDiv.className = 'globe-label';
+
   const fontSize = Math.max(8, Math.min(12, 10 * size));
   labelDiv.innerHTML = `<span class="label-text" style="font-size: ${fontSize}px">${name}</span>`;
 
   const labelObject = new CSS2DObject(labelDiv);
   const position = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.02);
   labelObject.position.copy(position);
+
   labelObject.userData = { lat, lon, element: labelDiv, size };
   labelObjects.push(labelObject);
   globeGroup.add(labelObject);
@@ -715,9 +903,7 @@ function checkSavedLocation() {
       currentLocation = { city, country, lat, lon };
       addUserMarker(lat, lon, city, country);
       showLocationSummary(city, country);
-      setTimeout(() => {
-        rotateToLocation(lat, lon);
-      }, 500);
+      setTimeout(() => rotateToLocation(lat, lon), 500);
     } catch (e) {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -740,19 +926,6 @@ async function geocodeLocation(city, country) {
   return null;
 }
 
-async function reverseGeocode(lat, lon) {
-  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`;
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
-  const data = await response.json();
-  if (data && data.address) {
-    return {
-      city: data.address.city || data.address.town || data.address.village || data.address.municipality,
-      country: data.address.country,
-    };
-  }
-  return { city: null, country: null };
-}
-
 function addUserMarker(lat, lon, city, country) {
   if (userMarker) {
     userMarker.traverse((child) => {
@@ -773,8 +946,7 @@ function addUserMarker(lat, lon, city, country) {
 
   const pointGeometry = new THREE.SphereGeometry(0.08, 16, 16);
   const pointMaterial = new THREE.MeshBasicMaterial({
-    color: 0xf2c14e,
-    transparent: false,
+    color: CONFIG.colors.user,
     depthTest: true,
     depthWrite: true,
   });
@@ -783,7 +955,7 @@ function addUserMarker(lat, lon, city, country) {
 
   const ringGeometry = new THREE.RingGeometry(0.1, 0.15, 32);
   const ringMaterial = new THREE.MeshBasicMaterial({
-    color: 0xf2c14e,
+    color: CONFIG.colors.user,
     transparent: true,
     opacity: 0.8,
     side: THREE.DoubleSide,
@@ -821,13 +993,17 @@ function rotateToLocation(lat, lon) {
   const duration = CONFIG.animation.rotateToUserDuration;
 
   function animateRotation() {
+    if (!isActive) return;
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
+
     let deltaRotation = targetRotationY - startRotation;
     while (deltaRotation > Math.PI) deltaRotation -= 2 * Math.PI;
     while (deltaRotation < -Math.PI) deltaRotation += 2 * Math.PI;
+
     globeGroup.rotation.y = startRotation + deltaRotation * eased;
+
     if (progress < 1) requestAnimationFrame(animateRotation);
   }
   animateRotation();
@@ -845,11 +1021,24 @@ function latLonToVector3(lat, lon, radius) {
 
 function animate() {
   if (!isActive) return;
+
   animationId = requestAnimationFrame(animate);
-  const now = Date.now();
-  if (!isUserInteracting && now - lastInteractionTime > interactionCooldown) {
-    globeGroup.rotation.y += CONFIG.globe.rotationSpeed;
+
+  // pause when hidden or out of view
+  if (isPaused) return;
+
+  const now = performance.now();
+  const frameInterval = 1000 / CONFIG.animation.targetFps;
+  if (now - lastRenderTime < frameInterval) return;
+  lastRenderTime = now;
+
+  const tNow = Date.now();
+  if (!isUserInteracting && tNow - lastInteractionTime > interactionCooldown) {
+    // если reduce motion — можно выключить авто-вращение
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (!reduceMotion) globeGroup.rotation.y += CONFIG.globe.rotationSpeed;
   }
+
   if (userMarker) {
     userMarker.children.forEach((child) => {
       if (child.userData && child.userData.isPulseRing) {
@@ -860,8 +1049,13 @@ function animate() {
       }
     });
   }
-  updateLabelVisibility();
+
   controls.update();
+
+  // labels visibility не каждый кадр (дешевле)
+  labelTick++;
+  if (labelTick % 2 === 0) updateLabelVisibility();
+
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
 }
@@ -872,30 +1066,33 @@ function updateLabelVisibility() {
   const minDist = CONFIG.camera.minDistance;
   const maxDist = CONFIG.camera.maxDistance;
   const zoomFactor = (cameraDistance - minDist) / (maxDist - minDist);
-  const zoomCurve = Math.pow(zoomFactor, 0.7);
+  const zoomCurve = Math.pow(Math.max(0, Math.min(1, zoomFactor)), 0.7);
   const minSizeThreshold = 0.55 + zoomCurve * 0.75;
 
-  labelObjects.forEach((labelObj) => {
+  // камера направление
+  const camDir = cameraPosition.clone().normalize();
+
+  for (let i = 0; i < labelObjects.length; i++) {
+    const labelObj = labelObjects[i];
     const labelSize = labelObj.userData.size || 1;
+
     const showByZoom = labelSize >= minSizeThreshold;
     if (!showByZoom) {
-      if (labelObj.userData.element) {
-        labelObj.userData.element.style.opacity = '0';
-        labelObj.userData.element.style.pointerEvents = 'none';
-      }
-      return;
+      if (labelObj.userData.element) labelObj.userData.element.style.opacity = '0';
+      continue;
     }
+
     const labelWorldPos = new THREE.Vector3();
     labelObj.getWorldPosition(labelWorldPos);
     const labelDir = labelWorldPos.clone().normalize();
-    const cameraDir = cameraPosition.clone().normalize();
-    const dot = labelDir.dot(cameraDir);
-    const isFacingCamera = dot > 0.1;
+
+    const dot = labelDir.dot(camDir);
+    const isFacingCamera = dot > 0.12;
+
     if (labelObj.userData.element) {
       labelObj.userData.element.style.opacity = isFacingCamera ? '1' : '0';
-      labelObj.userData.element.style.pointerEvents = isFacingCamera ? 'auto' : 'none';
     }
-  });
+  }
 }
 
 function getStageSize() {
@@ -906,9 +1103,14 @@ function getStageSize() {
 }
 
 function handleResize() {
+  if (!camera || !renderer || !labelRenderer) return;
+
   const { width, height } = getStageSize();
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
+
+  const dpr = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatioCap);
+  renderer.setPixelRatio(dpr);
   renderer.setSize(width, height);
   labelRenderer.setSize(width, height);
 }
@@ -917,4 +1119,29 @@ function startResizeWatcher() {
   resizeObserver = new ResizeObserver(handleResize);
   resizeObserver.observe(stageEl);
   window.addEventListener('resize', handleResize);
+}
+
+function startVisibilityWatchers() {
+  // pause when element out of viewport
+  intersectionObserver = new IntersectionObserver(
+    (entries) => {
+      isInView = entries?.[0]?.isIntersecting ?? true;
+      updatePausedState();
+    },
+    { root: null, threshold: 0.05 }
+  );
+  intersectionObserver.observe(stageEl);
+
+  // pause when tab hidden
+  visibilityHandler = () => {
+    updatePausedState();
+  };
+  document.addEventListener('visibilitychange', visibilityHandler);
+
+  updatePausedState();
+}
+
+function updatePausedState() {
+  const hidden = document.hidden;
+  isPaused = hidden || !isInView;
 }
