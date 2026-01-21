@@ -1,10 +1,5 @@
 import { createEl } from "../utils/dom.js";
-import {
-  getSanctumLatest,
-  getSolscanLatest,
-  refreshSanctum,
-  refreshSolscan,
-} from "../api.js";
+import { getSanctumLatest, getSolscanLatest, refreshSanctum, refreshSolscan } from "../api.js";
 
 function shortAddr(a) {
   if (!a) return "";
@@ -40,7 +35,7 @@ function solscanTimeToAgeSeconds(timeText) {
       unit.startsWith("day") ? 86400 :
       unit.startsWith("week") ? 604800 :
       unit.startsWith("month") ? 2592000 :
-      31536000;
+      31536000; // year
 
     return n * mult;
   }
@@ -53,26 +48,64 @@ function solscanTimeToAgeSeconds(timeText) {
   return Number.POSITIVE_INFINITY;
 }
 
+// --- FIX: иногда "time" приходит не временем, а подписью, а "time ago" лежит в action.
+// Поэтому время и action достаем из обоих полей.
+function extractAgeText(tx) {
+  const t1 = (tx?.time ?? "").toString().trim();
+  if (t1 && (t1.toLowerCase().includes("ago") || t1.toLowerCase().includes("just now"))) return t1;
+
+  const a = (tx?.action ?? "").toString().trim();
+  if (!a) return "";
+
+  if (a.includes("•")) {
+    const left = a.split("•")[0].trim();
+    if (left.toLowerCase().includes("ago") || left.toLowerCase().includes("just now")) return left;
+  }
+
+  const m = a.match(
+    /(just now|\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago)/i
+  );
+  if (m) return m[1].trim();
+
+  const parsed = Date.parse(t1 || a);
+  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
+
+  return "";
+}
+
+function extractActionText(tx) {
+  let a = (tx?.action ?? "").toString().trim();
+  if (!a) return "TRANSFER";
+
+  if (a.includes("•")) a = a.split("•").pop().trim();
+
+  a = a.replace(
+    /^(just now|\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago)\s*/i,
+    ""
+  ).trim();
+
+  return a || "TRANSFER";
+}
+
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
-    const aa = solscanTimeToAgeSeconds(a.time);
-    const bb = solscanTimeToAgeSeconds(b.time);
+    const aa = solscanTimeToAgeSeconds(extractAgeText(a));
+    const bb = solscanTimeToAgeSeconds(extractAgeText(b));
 
     const aBad = !Number.isFinite(aa);
     const bBad = !Number.isFinite(bb);
 
-    // непонятные времена вниз списка
+    // непонятные — вниз
     if (aBad && !bBad) return 1;
     if (!aBad && bBad) return -1;
 
-    // оба нормальные: меньше = новее
+    // меньше age = новее
     return aa - bb;
   });
 }
 
 function formatAmount(amount, token) {
-  if (amount === null || amount === undefined || amount === "")
-    return `— ${token || ""}`.trim();
+  if (amount === null || amount === undefined || amount === "") return `— ${token || ""}`.trim();
   return `${amount} ${token || ""}`.trim();
 }
 
@@ -161,24 +194,23 @@ export function renderStakeInformation(target) {
       return;
     }
 
-    txList.innerHTML = txs
-      .map((tx) => {
-        const time = safeText(tx.time);
-        const action = safeText(tx.action, "TRANSFER");
-        const fromA = shortAddr(tx.from_address);
-        const toA = shortAddr(tx.to_address);
-        const detail = `${action}${fromA || toA ? ` • ${fromA} → ${toA}` : ""}`;
-        const amount = formatAmount(tx.amount, tx.token || "BULK");
+    txList.innerHTML = txs.map((tx) => {
+      const time = safeText(extractAgeText(tx));
+      const action = safeText(extractActionText(tx), "TRANSFER");
+      const fromA = shortAddr(tx.from_address);
+      const toA = shortAddr(tx.to_address);
+      const detail = `${action}${fromA || toA ? ` • ${fromA} → ${toA}` : ""}`;
 
-        return `
-          <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
-            <span class="stake-transaction__time">${time}</span>
-            <span class="stake-transaction__detail">${detail}</span>
-            <span class="stake-transaction__amount">${amount}</span>
-          </li>
-        `;
-      })
-      .join("");
+      const amount = formatAmount(tx.amount, tx.token || "BULK");
+
+      return `
+        <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
+          <span class="stake-transaction__time">${time}</span>
+          <span class="stake-transaction__detail">${detail}</span>
+          <span class="stake-transaction__amount">${amount}</span>
+        </li>
+      `;
+    }).join("");
   }
 
   async function loadAll() {
@@ -200,8 +232,7 @@ export function renderStakeInformation(target) {
     // 2) Solscan tx list
     try {
       const txsRaw = await getSolscanLatest(10);
-      const list = Array.isArray(txsRaw) ? txsRaw : (txsRaw?.data || []);
-      const txs = sortTransactionsNewestFirst(list);
+      const txs = sortTransactionsNewestFirst(txsRaw);
       renderTransactions(txs);
     } catch (e) {
       renderTransactions([]);
@@ -235,4 +266,3 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
-
