@@ -194,7 +194,6 @@ try {
   setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
 }
 
-
   async function handleRefresh() {
     refreshBtn.disabled = true;
     const oldText = refreshBtn.textContent;
@@ -223,5 +222,3 @@ try {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
-
-
