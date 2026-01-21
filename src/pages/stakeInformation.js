@@ -184,15 +184,16 @@ export function renderStakeInformation(target) {
       setError(`Sanctum error: ${e.message}`);
     }
 
-    // 2) Solscan tx list
-    try {
-      const txsRaw = await getSolscanLatest(10);
-      const txs = sortTransactionsNewestFirst(txsRaw);
-    } catch (e) {
-      renderTransactions([]);
-      setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
-    }
-  }
+// 2) Solscan tx list
+try {
+  const txsRaw = await getSolscanLatest(10);
+  const txs = sortTransactionsNewestFirst(txsRaw);
+  renderTransactions(txs); // <-- ВОТ ЭТОГО НЕ ХВАТАЛО
+} catch (e) {
+  renderTransactions([]);
+  setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
+}
+
 
   async function handleRefresh() {
     refreshBtn.disabled = true;
@@ -222,4 +223,5 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
+
 
