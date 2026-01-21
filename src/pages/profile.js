@@ -100,3 +100,114 @@ export function renderProfile(target) {
     confirmPasswordInput.removeEventListener('input', handlePasswordInput);
   };
 }
+
+// src/pages/profile.js
+import { openLoginModal } from "../app.js";
+
+const API_BASE =
+  window.BULK_AUTH_API_BASE ||
+  "https://bulkhubdatabase-production.up.railway.app"; // <-- поменяй
+
+const LS_TOKEN = "bulk_auth_token";
+
+function getToken() {
+  return localStorage.getItem(LS_TOKEN);
+}
+
+async function api(path, { method = "GET", body, auth = true } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  if (auth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.detail || data?.error || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// === экспортируем функцию сохранения метки, чтобы её можно было дергать из глобуса ===
+export async function saveMyMarker({ country, city, lat = null, lng = null }) {
+  const token = getToken();
+  if (!token) {
+    openLoginModal();
+    throw new Error("Нужно войти, чтобы сохранить метку");
+  }
+  return await api("/markers", {
+    method: "POST",
+    body: { country, city, lat, lng },
+  });
+}
+
+export async function loadMyMarker() {
+  const token = getToken();
+  if (!token) return null;
+  return await api("/markers/me");
+}
+
+// --- UI wiring (если у тебя на profile есть форма) ---
+document.addEventListener("DOMContentLoaded", async () => {
+  const form = document.querySelector("#marker-form") || document.querySelector('[data-marker="form"]');
+  const countryEl =
+    document.querySelector("#marker-country") || document.querySelector('[data-marker="country"]');
+  const cityEl =
+    document.querySelector("#marker-city") || document.querySelector('[data-marker="city"]');
+  const latEl =
+    document.querySelector("#marker-lat") || document.querySelector('[data-marker="lat"]');
+  const lngEl =
+    document.querySelector("#marker-lng") || document.querySelector('[data-marker="lng"]');
+  const msgEl =
+    document.querySelector("#marker-msg") || document.querySelector('[data-marker="msg"]');
+
+  const setMsg = (t) => {
+    if (msgEl) {
+      msgEl.textContent = t || "";
+      msgEl.style.display = t ? "block" : "none";
+    }
+  };
+
+  // подгружаем текущую метку (если залогинен)
+  try {
+    const m = await loadMyMarker();
+    if (m && countryEl && cityEl) {
+      countryEl.value = m.country || "";
+      cityEl.value = m.city || "";
+      if (latEl) latEl.value = m.lat ?? "";
+      if (lngEl) lngEl.value = m.lng ?? "";
+    }
+  } catch (e) {
+    // не критично
+  }
+
+  if (!form) return;
+
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    setMsg("");
+
+    const country = (countryEl?.value || "").trim();
+    const city = (cityEl?.value || "").trim();
+    const lat = latEl?.value ? Number(latEl.value) : null;
+    const lng = lngEl?.value ? Number(lngEl.value) : null;
+
+    if (!country || !city) {
+      setMsg("Заполни страну и город");
+      return;
+    }
+
+    try {
+      await saveMyMarker({ country, city, lat, lng });
+      setMsg("✅ Метка сохранена");
+    } catch (e) {
+      setMsg(e.message || "Ошибка сохранения");
+    }
+  });
+});
+
