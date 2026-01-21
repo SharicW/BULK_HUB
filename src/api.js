@@ -66,3 +66,12 @@ export async function getSolscanLatest(limit = 10) {
 export async function refreshSolscan(limitRows = 10) {
   return request(`/solscan/refresh?limit_rows=${encodeURIComponent(limitRows)}`, { method: "POST" });
 }
+
+// --- X (Twitter) ---
+export async function getXTop(limit = 15) {
+  return request(`/x/top/${encodeURIComponent(limit)}`);
+}
+
+export async function findXUser(username) {
+  return request(`/x/${encodeURIComponent(username)}`);
+}
