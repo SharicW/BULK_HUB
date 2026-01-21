@@ -55,7 +55,18 @@ function solscanTimeToAgeSeconds(timeText) {
 
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
-    return solscanTimeToAgeSeconds(a.time) - solscanTimeToAgeSeconds(b.time);
+    const aa = solscanTimeToAgeSeconds(a.time);
+    const bb = solscanTimeToAgeSeconds(b.time);
+
+    const aBad = !Number.isFinite(aa);
+    const bBad = !Number.isFinite(bb);
+
+    // непонятные времена вниз списка
+    if (aBad && !bBad) return 1;
+    if (!aBad && bBad) return -1;
+
+    // оба нормальные: меньше = новее
+    return aa - bb;
   });
 }
 
@@ -224,3 +235,4 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
+
