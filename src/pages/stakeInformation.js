@@ -1,5 +1,10 @@
 import { createEl } from "../utils/dom.js";
-import { getSanctumLatest, getSolscanLatest, refreshSanctum, refreshSolscan } from "../api.js";
+import {
+  getSanctumLatest,
+  getSolscanLatest,
+  refreshSanctum,
+  refreshSolscan,
+} from "../api.js";
 
 function shortAddr(a) {
   if (!a) return "";
@@ -18,10 +23,8 @@ function solscanTimeToAgeSeconds(timeText) {
 
   const t = String(timeText).toLowerCase().trim();
 
-  // "just now"
   if (t.includes("just now")) return 0;
 
-  // "53 mins ago", "1 hr ago", "2 hrs ago", "14 min ago", etc.
   const m = t.match(
     /(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago/
   );
@@ -37,12 +40,11 @@ function solscanTimeToAgeSeconds(timeText) {
       unit.startsWith("day") ? 86400 :
       unit.startsWith("week") ? 604800 :
       unit.startsWith("month") ? 2592000 :
-      31536000; // year
+      31536000;
 
     return n * mult;
   }
 
-  // Если вдруг станет ISO/Date строкой — тоже поддержим
   const parsed = Date.parse(timeText);
   if (!Number.isNaN(parsed)) {
     return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
@@ -53,13 +55,13 @@ function solscanTimeToAgeSeconds(timeText) {
 
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
-    // меньше "age" = более новая
     return solscanTimeToAgeSeconds(a.time) - solscanTimeToAgeSeconds(b.time);
   });
 }
 
 function formatAmount(amount, token) {
-  if (amount === null || amount === undefined || amount === "") return `— ${token || ""}`.trim();
+  if (amount === null || amount === undefined || amount === "")
+    return `— ${token || ""}`.trim();
   return `${amount} ${token || ""}`.trim();
 }
 
@@ -67,7 +69,6 @@ export function renderStakeInformation(target) {
   target.innerHTML = "";
   const wrapper = createEl("div", { className: "page-shell" });
 
-  // Изначальные плейсхолдеры (пока грузим)
   wrapper.innerHTML = `
     <div class="page-header">
       <div>
@@ -149,23 +150,24 @@ export function renderStakeInformation(target) {
       return;
     }
 
-    txList.innerHTML = txs.map((tx) => {
-      const time = safeText(tx.time);
-      const action = safeText(tx.action, "TRANSFER");
-      const fromA = shortAddr(tx.from_address);
-      const toA = shortAddr(tx.to_address);
-      const detail = `${action}${fromA || toA ? ` • ${fromA} → ${toA}` : ""}`;
+    txList.innerHTML = txs
+      .map((tx) => {
+        const time = safeText(tx.time);
+        const action = safeText(tx.action, "TRANSFER");
+        const fromA = shortAddr(tx.from_address);
+        const toA = shortAddr(tx.to_address);
+        const detail = `${action}${fromA || toA ? ` • ${fromA} → ${toA}` : ""}`;
+        const amount = formatAmount(tx.amount, tx.token || "BULK");
 
-      const amount = formatAmount(tx.amount, tx.token || "BULK");
-
-      return `
-        <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
-          <span class="stake-transaction__time">${time}</span>
-          <span class="stake-transaction__detail">${detail}</span>
-          <span class="stake-transaction__amount">${amount}</span>
-        </li>
-      `;
-    }).join("");
+        return `
+          <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
+            <span class="stake-transaction__time">${time}</span>
+            <span class="stake-transaction__detail">${detail}</span>
+            <span class="stake-transaction__amount">${amount}</span>
+          </li>
+        `;
+      })
+      .join("");
   }
 
   async function loadAll() {
@@ -184,15 +186,17 @@ export function renderStakeInformation(target) {
       setError(`Sanctum error: ${e.message}`);
     }
 
-// 2) Solscan tx list
-try {
-  const txsRaw = await getSolscanLatest(10);
-  const txs = sortTransactionsNewestFirst(txsRaw);
-  renderTransactions(txs); // <-- ВОТ ЭТОГО НЕ ХВАТАЛО
-} catch (e) {
-  renderTransactions([]);
-  setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
-}
+    // 2) Solscan tx list
+    try {
+      const txsRaw = await getSolscanLatest(10);
+      const list = Array.isArray(txsRaw) ? txsRaw : (txsRaw?.data || []);
+      const txs = sortTransactionsNewestFirst(list);
+      renderTransactions(txs);
+    } catch (e) {
+      renderTransactions([]);
+      setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
+    }
+  }
 
   async function handleRefresh() {
     refreshBtn.disabled = true;
@@ -201,7 +205,6 @@ try {
     setError("");
 
     try {
-      // если хочешь именно “дернуть парсер” по кнопке:
       await Promise.all([
         refreshSanctum().catch(() => null),
         refreshSolscan(10).catch(() => null),
@@ -215,7 +218,6 @@ try {
 
   refreshBtn.addEventListener("click", handleRefresh);
 
-  // автозагрузка при открытии страницы
   loadAll();
 
   return () => {
