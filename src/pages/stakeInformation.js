@@ -1,10 +1,17 @@
+// src/pages/stakeInformation.js
 import { createEl } from "../utils/dom.js";
-import { getSanctumLatest, getSolscanLatest, refreshSanctum, refreshSolscan } from "../api.js";
+import {
+  getSanctumLatest,
+  getSolscanLatest,
+  refreshSanctum,
+  refreshSolscan,
+} from "../api.js";
 
 function shortAddr(a) {
   if (!a) return "";
-  if (a.length <= 10) return a;
-  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+  const s = String(a);
+  if (s.length <= 10) return s;
+  return `${s.slice(0, 4)}…${s.slice(-4)}`;
 }
 
 function safeText(v, fallback = "—") {
@@ -13,13 +20,68 @@ function safeText(v, fallback = "—") {
   return s ? s : fallback;
 }
 
-function solscanTimeToAgeSeconds(timeText) {
-  if (!timeText) return Number.POSITIVE_INFINITY;
+function looksLikeRelativeTime(s) {
+  if (!s) return false;
+  const t = String(s).toLowerCase();
+  return (
+    t.includes("just now") ||
+    /\bago\b/.test(t) ||
+    /\b(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\b/.test(
+      t
+    )
+  );
+}
 
-  const t = String(timeText).toLowerCase().trim();
+function looksLikeSignature(s) {
+  if (!s) return false;
+  const t = String(s).trim();
+  // very rough: long base58-ish without spaces
+  return t.length >= 25 && !t.includes(" ") && /^[1-9A-HJ-NP-Za-km-z]+$/.test(t);
+}
 
-  if (t.includes("just now")) return 0;
+/**
+ * Нормализуем транзакцию, потому что иногда парсер кладёт:
+ * time <- signature, action <- "5 mins ago", from <- "TRANSFER", to <- from_address
+ * В таком случае:
+ *  - time берем из action
+ *  - action берем из from_address
+ *  - from берем из to_address
+ *  - to у нас может отсутствовать (оставляем пустым)
+ */
+function normalizeTx(tx) {
+  const out = {
+    signature: tx?.signature ?? "",
+    time: tx?.time ?? "",
+    action: tx?.action ?? "",
+    from_address: tx?.from_address ?? "",
+    to_address: tx?.to_address ?? "",
+    amount: tx?.amount,
+    token: tx?.token ?? "BULK",
+    value: tx?.value,
+  };
 
+  // если time выглядит как сигнатура, а action как "xx mins ago" — это точно съезд
+  if (looksLikeSignature(out.time) && looksLikeRelativeTime(out.action)) {
+    return {
+      ...out,
+      time: out.action,                // было: "5 mins ago"
+      action: out.from_address || "",  // было: "TRANSFER"
+      from_address: out.to_address || "",
+      to_address: "",                  // реальный to потерян при съезде — лучше пусто, чем враньё
+    };
+  }
+
+  return out;
+}
+
+function timeToEpochMs(timeText) {
+  if (!timeText) return 0;
+  const raw = String(timeText).trim();
+  const t = raw.toLowerCase();
+
+  if (t.includes("just now")) return Date.now();
+
+  // "53 mins ago", "1 hr ago", "2 hrs ago", etc.
   const m = t.match(
     /(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago/
   );
@@ -35,77 +97,37 @@ function solscanTimeToAgeSeconds(timeText) {
       unit.startsWith("day") ? 86400 :
       unit.startsWith("week") ? 604800 :
       unit.startsWith("month") ? 2592000 :
-      31536000; // year
+      31536000;
 
-    return n * mult;
+    return Date.now() - n * mult * 1000;
   }
 
-  const parsed = Date.parse(timeText);
-  if (!Number.isNaN(parsed)) {
-    return Math.max(0, Math.floor((Date.now() - parsed) / 1000));
-  }
+  // ISO / date string support
+  const parsed = Date.parse(raw);
+  if (!Number.isNaN(parsed)) return parsed;
 
-  return Number.POSITIVE_INFINITY;
-}
-
-// --- FIX: иногда "time" приходит не временем, а подписью, а "time ago" лежит в action.
-// Поэтому время и action достаем из обоих полей.
-function extractAgeText(tx) {
-  const t1 = (tx?.time ?? "").toString().trim();
-  if (t1 && (t1.toLowerCase().includes("ago") || t1.toLowerCase().includes("just now"))) return t1;
-
-  const a = (tx?.action ?? "").toString().trim();
-  if (!a) return "";
-
-  if (a.includes("•")) {
-    const left = a.split("•")[0].trim();
-    if (left.toLowerCase().includes("ago") || left.toLowerCase().includes("just now")) return left;
-  }
-
-  const m = a.match(
-    /(just now|\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago)/i
-  );
-  if (m) return m[1].trim();
-
-  const parsed = Date.parse(t1 || a);
-  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
-
-  return "";
-}
-
-function extractActionText(tx) {
-  let a = (tx?.action ?? "").toString().trim();
-  if (!a) return "TRANSFER";
-
-  if (a.includes("•")) a = a.split("•").pop().trim();
-
-  a = a.replace(
-    /^(just now|\d+\s*(?:sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago)\s*/i,
-    ""
-  ).trim();
-
-  return a || "TRANSFER";
+  return 0;
 }
 
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
-    const aa = solscanTimeToAgeSeconds(extractAgeText(a));
-    const bb = solscanTimeToAgeSeconds(extractAgeText(b));
+    const na = normalizeTx(a);
+    const nb = normalizeTx(b);
 
-    const aBad = !Number.isFinite(aa);
-    const bBad = !Number.isFinite(bb);
+    // чем больше epoch — тем новее, значит сортируем по убыванию
+    const ta = timeToEpochMs(na.time);
+    const tb = timeToEpochMs(nb.time);
 
-    // непонятные — вниз
-    if (aBad && !bBad) return 1;
-    if (!aBad && bBad) return -1;
+    if (tb !== ta) return tb - ta;
 
-    // меньше age = новее
-    return aa - bb;
+    // стабильный тай-брейк
+    return String(nb.signature || "").localeCompare(String(na.signature || ""));
   });
 }
 
 function formatAmount(amount, token) {
-  if (amount === null || amount === undefined || amount === "") return `— ${token || ""}`.trim();
+  if (amount === null || amount === undefined || amount === "")
+    return `— ${token || ""}`.trim();
   return `${amount} ${token || ""}`.trim();
 }
 
@@ -169,9 +191,15 @@ export function renderStakeInformation(target) {
   target.appendChild(wrapper);
 
   const metricEls = {
-    total_staked: wrapper.querySelector(`[data-metric="total_staked"] [data-value]`),
-    bulk_to_sol: wrapper.querySelector(`[data-metric="bulk_to_sol"] [data-value]`),
-    total_holders: wrapper.querySelector(`[data-metric="total_holders"] [data-value]`),
+    total_staked: wrapper.querySelector(
+      `[data-metric="total_staked"] [data-value]`
+    ),
+    bulk_to_sol: wrapper.querySelector(
+      `[data-metric="bulk_to_sol"] [data-value]`
+    ),
+    total_holders: wrapper.querySelector(
+      `[data-metric="total_holders"] [data-value]`
+    ),
   };
 
   const txList = wrapper.querySelector("[data-bind-transactions]");
@@ -194,23 +222,34 @@ export function renderStakeInformation(target) {
       return;
     }
 
-    txList.innerHTML = txs.map((tx) => {
-      const time = safeText(extractAgeText(tx));
-      const action = safeText(extractActionText(tx), "TRANSFER");
-      const fromA = shortAddr(tx.from_address);
-      const toA = shortAddr(tx.to_address);
-      const detail = `${action}${fromA || toA ? ` • ${fromA} → ${toA}` : ""}`;
+    txList.innerHTML = txs
+      .map((raw) => {
+        const tx = normalizeTx(raw);
 
-      const amount = formatAmount(tx.amount, tx.token || "BULK");
+        const time = safeText(tx.time);
+        const action = safeText(tx.action, "TRANSFER");
+        const fromA = shortAddr(tx.from_address);
+        const toA = shortAddr(tx.to_address);
 
-      return `
-        <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
-          <span class="stake-transaction__time">${time}</span>
-          <span class="stake-transaction__detail">${detail}</span>
-          <span class="stake-transaction__amount">${amount}</span>
-        </li>
-      `;
-    }).join("");
+        const detail =
+          fromA || toA
+            ? `${action} • ${fromA || "—"} → ${toA || "—"}`
+            : `${action}`;
+
+        const amount = formatAmount(tx.amount, tx.token || "BULK");
+
+        return `
+          <li class="stake-transaction" data-transaction-id="${safeText(
+            tx.signature,
+            ""
+          )}">
+            <span class="stake-transaction__time">${time}</span>
+            <span class="stake-transaction__detail">${detail}</span>
+            <span class="stake-transaction__amount">${amount}</span>
+          </li>
+        `;
+      })
+      .join("");
   }
 
   async function loadAll() {
@@ -232,11 +271,14 @@ export function renderStakeInformation(target) {
     // 2) Solscan tx list
     try {
       const txsRaw = await getSolscanLatest(10);
-      const txs = sortTransactionsNewestFirst(txsRaw);
+      const txs = sortTransactionsNewestFirst(Array.isArray(txsRaw) ? txsRaw : []);
       renderTransactions(txs);
     } catch (e) {
       renderTransactions([]);
-      setError((errEl.textContent ? errEl.textContent + " | " : "") + `Solscan error: ${e.message}`);
+      setError(
+        (errEl.textContent ? errEl.textContent + " | " : "") +
+          `Solscan error: ${e.message}`
+      );
     }
   }
 
@@ -259,7 +301,6 @@ export function renderStakeInformation(target) {
   }
 
   refreshBtn.addEventListener("click", handleRefresh);
-
   loadAll();
 
   return () => {
