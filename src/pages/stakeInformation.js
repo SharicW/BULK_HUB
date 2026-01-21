@@ -35,23 +35,20 @@ function looksLikeRelativeTime(s) {
 function looksLikeSignature(s) {
   if (!s) return false;
   const t = String(s).trim();
-  // very rough: long base58-ish without spaces
+  // rough base58-ish without spaces
   return t.length >= 25 && !t.includes(" ") && /^[1-9A-HJ-NP-Za-km-z]+$/.test(t);
 }
 
 /**
- * Нормализуем транзакцию, потому что иногда парсер кладёт:
- * time <- signature, action <- "5 mins ago", from <- "TRANSFER", to <- from_address
- * В таком случае:
- *  - time берем из action
- *  - action берем из from_address
- *  - from берем из to_address
- *  - to у нас может отсутствовать (оставляем пустым)
+ * Fallback нормализация на случай, если в БД вдруг снова прилетит "съехавшая" строка.
+ * Сейчас у тебя таблица уже норм — так что это просто страховка.
  */
 function normalizeTx(tx) {
   const out = {
+    id: tx?.id ?? null,
     signature: tx?.signature ?? "",
     time: tx?.time ?? "",
+    event_ts: tx?.event_ts ?? null,
     action: tx?.action ?? "",
     from_address: tx?.from_address ?? "",
     to_address: tx?.to_address ?? "",
@@ -60,28 +57,43 @@ function normalizeTx(tx) {
     value: tx?.value,
   };
 
-  // если time выглядит как сигнатура, а action как "xx mins ago" — это точно съезд
+  // Если time выглядит как signature, а action как "xx mins ago" — это съезд
   if (looksLikeSignature(out.time) && looksLikeRelativeTime(out.action)) {
     return {
       ...out,
-      time: out.action,                // было: "5 mins ago"
-      action: out.from_address || "",  // было: "TRANSFER"
+      time: out.action,
+      action: out.from_address || "",
       from_address: out.to_address || "",
-      to_address: "",                  // реальный to потерян при съезде — лучше пусто, чем враньё
+      to_address: "",
     };
   }
 
   return out;
 }
 
-function timeToEpochMs(timeText) {
+/**
+ * Возвращает epoch ms:
+ * 1) event_ts (лучший вариант)
+ * 2) относительное время "5 mins ago"
+ * 3) Date.parse(time)
+ * 4) 0
+ */
+function timeToEpochMs(tx) {
+  // 1) event_ts
+  if (tx && tx.event_ts) {
+    const p = Date.parse(tx.event_ts);
+    if (!Number.isNaN(p)) return p;
+  }
+
+  // 2) fallback по строке time
+  const timeText = tx?.time;
   if (!timeText) return 0;
+
   const raw = String(timeText).trim();
   const t = raw.toLowerCase();
 
   if (t.includes("just now")) return Date.now();
 
-  // "53 mins ago", "1 hr ago", "2 hrs ago", etc.
   const m = t.match(
     /(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days|week|weeks|month|months|year|years)\s*ago/
   );
@@ -102,25 +114,31 @@ function timeToEpochMs(timeText) {
     return Date.now() - n * mult * 1000;
   }
 
-  // ISO / date string support
   const parsed = Date.parse(raw);
   if (!Number.isNaN(parsed)) return parsed;
 
   return 0;
 }
 
+/**
+ * Сортировка: newest -> oldest
+ * 1) event_ts epoch desc
+ * 2) id desc
+ * 3) signature (стабильный tie-breaker)
+ */
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
     const na = normalizeTx(a);
     const nb = normalizeTx(b);
 
-    // чем больше epoch — тем новее, значит сортируем по убыванию
-    const ta = timeToEpochMs(na.time);
-    const tb = timeToEpochMs(nb.time);
-
+    const ta = timeToEpochMs(na);
+    const tb = timeToEpochMs(nb);
     if (tb !== ta) return tb - ta;
 
-    // стабильный тай-брейк
+    const ida = Number(na.id || 0);
+    const idb = Number(nb.id || 0);
+    if (idb !== ida) return idb - ida;
+
     return String(nb.signature || "").localeCompare(String(na.signature || ""));
   });
 }
@@ -191,15 +209,9 @@ export function renderStakeInformation(target) {
   target.appendChild(wrapper);
 
   const metricEls = {
-    total_staked: wrapper.querySelector(
-      `[data-metric="total_staked"] [data-value]`
-    ),
-    bulk_to_sol: wrapper.querySelector(
-      `[data-metric="bulk_to_sol"] [data-value]`
-    ),
-    total_holders: wrapper.querySelector(
-      `[data-metric="total_holders"] [data-value]`
-    ),
+    total_staked: wrapper.querySelector(`[data-metric="total_staked"] [data-value]`),
+    bulk_to_sol: wrapper.querySelector(`[data-metric="bulk_to_sol"] [data-value]`),
+    total_holders: wrapper.querySelector(`[data-metric="total_holders"] [data-value]`),
   };
 
   const txList = wrapper.querySelector("[data-bind-transactions]");
@@ -239,10 +251,7 @@ export function renderStakeInformation(target) {
         const amount = formatAmount(tx.amount, tx.token || "BULK");
 
         return `
-          <li class="stake-transaction" data-transaction-id="${safeText(
-            tx.signature,
-            ""
-          )}">
+          <li class="stake-transaction" data-transaction-id="${safeText(tx.signature, "")}">
             <span class="stake-transaction__time">${time}</span>
             <span class="stake-transaction__detail">${detail}</span>
             <span class="stake-transaction__amount">${amount}</span>
@@ -271,7 +280,8 @@ export function renderStakeInformation(target) {
     // 2) Solscan tx list
     try {
       const txsRaw = await getSolscanLatest(10);
-      const txs = sortTransactionsNewestFirst(Array.isArray(txsRaw) ? txsRaw : []);
+      const list = Array.isArray(txsRaw) ? txsRaw : [];
+      const txs = sortTransactionsNewestFirst(list);
       renderTransactions(txs);
     } catch (e) {
       renderTransactions([]);
