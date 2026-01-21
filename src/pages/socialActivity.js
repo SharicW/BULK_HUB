@@ -1,228 +1,13 @@
 import { createEl } from '../utils/dom.js';
-import * as API from '../api.js';
-
-/* ----------------------------- helpers (X) ----------------------------- */
-
-function num(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function pickFirst(obj, keys) {
-  if (!obj) return undefined;
-  for (const k of keys) {
-    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-  }
-  return undefined;
-}
-
-/**
- * Формула Engage Points (можешь потом легко поменять веса):
- * likes*1 + replies*2 + reposts*2 + quotes*3 + bookmarks*1.5 + views/100
- * (100 просмотров = 1 point)
- *
- * Поддерживает разные названия полей из парсера/БД.
- */
-function calcXEngagePoints(row) {
-  const likes = num(
-    pickFirst(row, ['likes', 'like_count', 'favorite_count', 'favorites', 'favourites', 'favourites_count'])
-  );
-
-  const replies = num(pickFirst(row, ['replies', 'reply_count', 'comments', 'comment_count']));
-
-  const reposts = num(
-    pickFirst(row, ['retweets', 'retweet_count', 'reposts', 'repost_count', 'shares', 'share_count'])
-  );
-
-  const quotes = num(pickFirst(row, ['quotes', 'quote_count']));
-
-  const bookmarks = num(pickFirst(row, ['bookmarks', 'bookmark_count', 'saves', 'save_count']));
-
-  const views = num(
-    pickFirst(row, ['views', 'view_count', 'impressions', 'impression_count', 'reach', 'reach_count'])
-  );
-
-  // основная формула
-  let points = likes * 1 + replies * 2 + reposts * 2 + quotes * 3 + bookmarks * 1.5 + views / 100;
-
-  // fallback: если у тебя уже есть готовые points/score в БД
-  if (!points || points === 0) {
-    points = num(pickFirst(row, ['engage_points', 'engagement_points', 'points', 'score', 'engagement', 'messages']));
-  }
-
-  // если пришли сверхмалые дробные — округлим
-  return Math.round(points);
-}
-
-function unwrapRows(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (payload && Array.isArray(payload.rows)) return payload.rows;
-  if (payload && Array.isArray(payload.data)) return payload.data;
-  if (payload && Array.isArray(payload.results)) return payload.results;
-  if (payload && Array.isArray(payload.items)) return payload.items;
-  if (payload && Array.isArray(payload.top)) return payload.top;
-  return [];
-}
-
-async function tryFetchJson(url) {
-  const res = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return await res.json();
-}
-
-async function fetchFirstSuccessful(urls) {
-  for (const url of urls) {
-    try {
-      const json = await tryFetchJson(url);
-      const rows = unwrapRows(json);
-      if (Array.isArray(rows)) return rows;
-      if (Array.isArray(json)) return json;
-    } catch (_) {
-      // пробуем следующий
-    }
-  }
-  return [];
-}
-
-async function callFirstApiFn(names, ...args) {
-  for (const name of names) {
-    const fn = API?.[name];
-    if (typeof fn === 'function') {
-      try {
-        const out = await fn(...args);
-        const rows = unwrapRows(out);
-        return Array.isArray(rows) ? rows : Array.isArray(out) ? out : [];
-      } catch (_) {
-        // пробуем следующий
-      }
-    }
-  }
-  return null;
-}
-
-// Берём base, если он экспортится из api.js. Если нет — пробуем относительные урлы.
-function getApiBase() {
-  const base =
-    API?.API_BASE ??
-    API?.API_URL ??
-    API?.BASE_URL ??
-    API?.baseUrl ??
-    API?.baseURL ??
-    API?.apiBase ??
-    '';
-  return typeof base === 'string' ? base.replace(/\/$/, '') : '';
-}
-
-async function getXTopSafe(limit = 15) {
-  // 1) если в api.js уже есть функция — используем её
-  const rowsFromFn = await callFirstApiFn(
-    ['getXTop', 'getTwitterTop', 'getXLeaderboard', 'getXTopUsers', 'getXUsersTop', 'getTopX'],
-    limit
-  );
-  if (Array.isArray(rowsFromFn)) return rowsFromFn;
-
-  // 2) если в api.js есть универсальный apiGet — попробуем через него
-  if (typeof API?.apiGet === 'function') {
-    const paths = [
-      `/x/top?limit=${limit}`,
-      `/x/leaderboard?limit=${limit}`,
-      `/twitter/top?limit=${limit}`,
-      `/api/x/top?limit=${limit}`,
-      `/top/x?limit=${limit}`,
-      `/x/top/${limit}`,
-    ];
-    for (const p of paths) {
-      try {
-        const out = await API.apiGet(p);
-        const rows = unwrapRows(out);
-        if (Array.isArray(rows) && rows.length) return rows;
-      } catch (_) {}
-    }
-  }
-
-  // 3) прямой fetch (самый универсальный)
-  const base = getApiBase(); // может быть '' — тогда будет относительный запрос
-  const urls = [
-    `${base}/x/top?limit=${limit}`,
-    `${base}/x/leaderboard?limit=${limit}`,
-    `${base}/twitter/top?limit=${limit}`,
-    `${base}/api/x/top?limit=${limit}`,
-    `${base}/top/x?limit=${limit}`,
-    `${base}/x/top/${limit}`,
-  ].map((u) => u.replace(/\/{2,}/g, '/').replace(':/', '://'));
-
-  return await fetchFirstSuccessful(urls);
-}
-
-async function findXUserSafe(username) {
-  // 1) если в api.js уже есть функция — используем её
-  const outFromFn = await callFirstApiFn(
-    ['findXUser', 'findTwitterUser', 'searchXUser', 'getXUser', 'findX', 'findTwitter'],
-    username
-  );
-  if (outFromFn && !Array.isArray(outFromFn)) return outFromFn; // на всякий
-
-  // 2) если в api.js есть универсальный apiGet — попробуем через него
-  if (typeof API?.apiGet === 'function') {
-    const paths = [
-      `/x/user/${encodeURIComponent(username)}`,
-      `/x/user?username=${encodeURIComponent(username)}`,
-      `/x/find/${encodeURIComponent(username)}`,
-      `/x/find?username=${encodeURIComponent(username)}`,
-      `/twitter/user/${encodeURIComponent(username)}`,
-      `/twitter/user?username=${encodeURIComponent(username)}`,
-      `/api/x/user?username=${encodeURIComponent(username)}`,
-    ];
-    for (const p of paths) {
-      try {
-        return await API.apiGet(p);
-      } catch (_) {}
-    }
-  }
-
-  // 3) прямой fetch
-  const base = getApiBase();
-  const urls = [
-    `${base}/x/user/${encodeURIComponent(username)}`,
-    `${base}/x/user?username=${encodeURIComponent(username)}`,
-    `${base}/x/find/${encodeURIComponent(username)}`,
-    `${base}/x/find?username=${encodeURIComponent(username)}`,
-    `${base}/twitter/user/${encodeURIComponent(username)}`,
-    `${base}/twitter/user?username=${encodeURIComponent(username)}`,
-    `${base}/api/x/user?username=${encodeURIComponent(username)}`,
-  ].map((u) => u.replace(/\/{2,}/g, '/').replace(':/', '://'));
-
-  for (const url of urls) {
-    try {
-      const json = await tryFetchJson(url);
-      return json;
-    } catch (_) {}
-  }
-
-  return { error: 'not_found' };
-}
-
-function makeTopXBoard(apiRows) {
-  const rows = Array.isArray(apiRows) ? apiRows : [];
-
-  const entries = rows
-    .filter((x) => x && !x.error)
-    .map((r) => {
-      const username =
-        r.username ?? r.handle ?? r.screen_name ?? r.user ?? r.name ?? r.login ?? 'Unknown';
-      const points = calcXEngagePoints(r);
-      return { name: username, value: points };
-    })
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
-
-  return { network: 'X', metricLabel: 'Engage Points', entries };
-}
-
-/* ----------------------------- existing UI ----------------------------- */
+import {
+  getTelegramTop,
+  getDiscordTop,
+  getCommunityStats,
+  findTelegramUser,
+  findDiscordUser,
+  getXTop,
+  findXUser,
+} from '../api.js';
 
 function buildLeaderboardCard(board) {
   const entriesHtml = board.entries
@@ -339,8 +124,8 @@ export function renderSocialActivity(target) {
       </div>
 
       <div class="social-activity__search-result">
-        <span class="muted">Results show total messages posted across the selected network</span>
-        <div class="social-activity__search-result-value" id="search-result">-- messages</div>
+        <span class="muted">Results show total messages/points across the selected network</span>
+        <div class="social-activity__search-result-value" id="search-result">--</div>
       </div>
     </section>
   `;
@@ -365,12 +150,11 @@ export function renderSocialActivity(target) {
     apiStatus.textContent = 'Loading data from API...';
 
     try {
-      // leaderboard (top 15) + реальные размеры комьюнити (COUNT(*))
       const [stats, dcTop, tgTop, xTop] = await Promise.all([
-        API.getCommunityStats(),
-        API.getDiscordTop(15),
-        API.getTelegramTop(15),
-        getXTopSafe(15), // <-- добавили X
+        getCommunityStats(),
+        getDiscordTop(15),
+        getTelegramTop(15),
+        getXTop(15),
       ]);
 
       if (!mounted) return;
@@ -385,10 +169,18 @@ export function renderSocialActivity(target) {
       xCountEl.textContent = String(xCount);
       totalEl.textContent = String(total);
 
+      const xEntries = (Array.isArray(xTop) ? xTop : [])
+        .filter((x) => x && !x.error)
+        .slice(0, 5)
+        .map((r) => ({
+          name: r.username ?? 'Unknown',
+          value: Number(r.messages ?? 0), // messages = engage_points
+        }));
+
       const boards = [
         makeTop5Board('Discord', 'Messages', dcTop),
         makeTop5Board('Telegram', 'Messages', tgTop),
-        makeTopXBoard(xTop), // <-- X leaderboard с engage points
+        { network: 'X', metricLabel: 'Engage Points', entries: xEntries },
       ];
 
       leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
@@ -404,7 +196,7 @@ export function renderSocialActivity(target) {
     const network = filterInput.value;
 
     if (!username) {
-      resultValue.textContent = '-- messages';
+      resultValue.textContent = '--';
       return;
     }
 
@@ -412,7 +204,7 @@ export function renderSocialActivity(target) {
 
     try {
       if (network === 'telegram') {
-        const data = await API.findTelegramUser(username);
+        const data = await findTelegramUser(username);
         if (data && data.error) {
           resultValue.textContent = `Not found in Telegram: ${username}`;
           return;
@@ -422,7 +214,7 @@ export function renderSocialActivity(target) {
       }
 
       if (network === 'discord') {
-        const data = await API.findDiscordUser(username);
+        const data = await findDiscordUser(username);
         if (data && data.error) {
           resultValue.textContent = `Not found in Discord: ${username}`;
           return;
@@ -431,25 +223,13 @@ export function renderSocialActivity(target) {
         return;
       }
 
-      // --------------------------- X SEARCH (NEW) ---------------------------
-      const data = await findXUserSafe(username);
+      // X
+      const data = await findXUser(username);
       if (data && data.error) {
         resultValue.textContent = `Not found in X: ${username}`;
         return;
       }
-
-      const displayName =
-        data?.username ?? data?.handle ?? data?.screen_name ?? data?.user ?? username;
-
-      const engage = calcXEngagePoints(data);
-
-      // Если есть количество постов/твитов — покажем красиво
-      const posts = num(pickFirst(data, ['tweets', 'tweet_count', 'posts', 'post_count', 'messages']));
-      if (posts > 0) {
-        resultValue.textContent = `${engage} engage points for ${displayName} on X (${posts} posts)`;
-      } else {
-        resultValue.textContent = `${engage} engage points for ${displayName} on X`;
-      }
+      resultValue.textContent = `${data?.messages ?? 0} engage points for ${data?.username ?? username} on X`;
     } catch (e) {
       console.error(e);
       resultValue.textContent = 'Search error (check API / CORS)';
