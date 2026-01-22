@@ -142,6 +142,12 @@ function clearAuthToken() {
   sessionStorage.removeItem(SS_TOKEN);
 }
 
+function toFiniteNumber(v) {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+
 async function api(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth) {
@@ -155,6 +161,7 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
+  // Всегда читаем как текст: в SPA/proxy иногда прилетает HTML (index.html/ошибка) с 200 OK.
   const txt = await res.text();
   const looksLikeHtml = /^\s*</.test(txt);
 
@@ -174,7 +181,7 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
     throw err;
   }
 
-  // Если сервер вернул не JSON (например, HTML), не считаем это успешным ответом
+  // Если статус OK, но ответ не JSON — считаем это ошибкой и НЕ затираем кеш.
   if (data === null) {
     const err = new Error('API returned non-JSON response');
     err.status = res.status;
@@ -238,6 +245,7 @@ let publicTooltipNameEl = null;
 let publicTooltipCountEl = null;
 let publicPointerMoveHandler = null;
 let publicPointerLeaveHandler = null;
+let publicPointerTargetEl = null;
 let publicNeedsPick = false;
 let publicLastPointerEvent = null;
 
@@ -288,6 +296,11 @@ let visibilityHandler = null;
 let QUALITY = null;
 
 export async function initGlobalMap(target) {
+  // Если предыдущий экземпляр карты не был корректно уничтожен (SPA-навигация), чистим его.
+  if (isActive) {
+    try { destroyGlobalMap(); } catch {}
+  }
+
   mountEl = target;
   const layout = buildLayout();
   target.innerHTML = '';
@@ -645,13 +658,14 @@ function setupControls() {
   controls.addEventListener('end', () => {
     isUserInteracting = false;
     lastInteractionTime = Date.now();
-  
+  });
+
   controls.addEventListener('change', () => {
     // когда камера/глобус двигаются, обновляем hover под текущим курсором
     if (publicLastPointerEvent) publicNeedsPick = true;
   });
-  });
 }
+
 
 function setupLights() {
   const ambientLight = new THREE.AmbientLight(0x404050, 0.55);
@@ -1112,10 +1126,12 @@ function indexCountryCentroids(labels) {
   try {
     _countryCentroidsByNorm.clear();
     for (const l of labels || []) {
-      if (!l?.name || typeof l?.lat !== 'number' || typeof l?.lon !== 'number') continue;
+      const lat = toFiniteNumber(l?.lat);
+      const lon = toFiniteNumber(l?.lon);
+      if (!l?.name || lat === null || lon === null) continue;
       const key = _canonCountryKey(l.name);
       // сохраняем оригинальное имя из labels.json (для отображения)
-      _countryCentroidsByNorm.set(key, { name: l.name, lat: l.lat, lon: l.lon });
+      _countryCentroidsByNorm.set(key, { name: l.name, lat, lon });
     }
   } catch {
     // ignore
@@ -1421,14 +1437,20 @@ function startPublicMarkersRefresh() {
   }, PUBLIC_COUNTRY_REFRESH_MS);
 }
 
-async function refreshPublicCountryMarkers() {
+async async function refreshPublicCountryMarkers() {
   // троттлинг (защита от частых вызовов при повторном монтировании)
   const now = Date.now();
   if (now - lastPublicMarkersFetchAt < 2500) return;
   lastPublicMarkersFetchAt = now;
 
-  // /markers не требует авторизации
-  const res = await api(`/markers?limit=2000`, { method: 'GET', auth: false });
+  let res;
+  try {
+    // /markers не требует авторизации
+    res = await api(`/markers?limit=2000`, { method: 'GET', auth: false });
+  } catch {
+    // сеть/парсинг/не-JSON — ничего не затираем, остаётся кеш
+    return;
+  }
 
   const markers = Array.isArray(res)
     ? res
@@ -1487,8 +1509,8 @@ function aggregateMarkersByCountry(markers) {
 
     entry.count += 1;
 
-    const lat = typeof m?.lat === 'number' ? m.lat : null;
-    const lon = typeof m?.lng === 'number' ? m.lng : null;
+    const lat = toFiniteNumber(m?.lat);
+    const lon = toFiniteNumber(m?.lng);
 
     // если нет центроида, можно собрать fallback среднее
     if (!centroid && lat !== null && lon !== null) {
@@ -1555,8 +1577,8 @@ function optimisticUpdatePublicCountryCounts(prevCountry, nextCountry, coords) {
   let nextItem = by.get(nextKey);
   if (!nextItem) {
     const centroid = getCountryCentroid(nextCountry);
-    const lat = typeof centroid?.lat === 'number' ? centroid.lat : coords?.lat;
-    const lon = typeof centroid?.lon === 'number' ? centroid.lon : coords?.lon;
+    const lat = toFiniteNumber(centroid?.lat) ?? toFiniteNumber(coords?.lat);
+    const lon = toFiniteNumber(centroid?.lon) ?? toFiniteNumber(coords?.lon);
 
     if (typeof lat !== 'number' || typeof lon !== 'number') return;
 
@@ -1736,10 +1758,17 @@ function ensurePublicHoverTooltip() {
 }
 
 function attachPublicHoverHandlers() {
-  if (!renderer?.domElement) return;
-  if (publicPointerMoveHandler) return; // уже подключено
+  const el = renderer?.domElement;
+  if (!el) return;
 
-  const el = renderer.domElement;
+  // если хендлеры уже есть, но были привязаны к другому canvas — перепривяжем
+  if (publicPointerMoveHandler && publicPointerTargetEl && publicPointerTargetEl !== el) {
+    try { publicPointerTargetEl.removeEventListener('pointermove', publicPointerMoveHandler); } catch {}
+    try { publicPointerTargetEl.removeEventListener('pointerleave', publicPointerLeaveHandler); } catch {}
+    publicPointerTargetEl = null;
+  }
+
+  if (publicPointerMoveHandler && publicPointerTargetEl === el) return; // уже подключено к текущему canvas
 
   publicPointerMoveHandler = (ev) => {
     publicLastPointerEvent = ev;
@@ -1761,10 +1790,12 @@ function attachPublicHoverHandlers() {
 
   el.addEventListener('pointermove', publicPointerMoveHandler, { passive: true });
   el.addEventListener('pointerleave', publicPointerLeaveHandler, { passive: true });
+  publicPointerTargetEl = el;
 }
 
+
 function detachPublicHoverHandlers() {
-  const el = renderer?.domElement;
+  const el = publicPointerTargetEl || renderer?.domElement;
   if (!el) return;
 
   if (publicPointerMoveHandler) {
@@ -1776,8 +1807,10 @@ function detachPublicHoverHandlers() {
     publicPointerLeaveHandler = null;
   }
 
+  publicPointerTargetEl = null;
   clearPublicHoverTooltip();
 }
+
 
 function processPublicHoverPick() {
   if (!publicNeedsPick) return;
@@ -2079,15 +2112,17 @@ async function checkSavedLocation() {
   // 1) пробуем взять из БД
   try {
     const m = await loadMyMarkerFromBackend();
-    if (m && m.city && m.country && typeof m.lat === 'number' && typeof m.lng === 'number') {
-      currentLocation = { city: m.city, country: m.country, lat: m.lat, lon: m.lng };
+    const lat = toFiniteNumber(m?.lat);
+    const lon = toFiniteNumber(m?.lng);
+    if (m && m.city && m.country && lat !== null && lon !== null) {
+      currentLocation = { city: m.city, country: m.country, lat, lon };
 
       // кеш на клиенте (не обязательно)
       localStorage.setItem(STORAGE_KEY, JSON.stringify(currentLocation));
 
-      addUserMarker(m.lat, m.lng, m.city, m.country);
+      addUserMarker(lat, lon, m.city, m.country);
       showLocationSummary(m.city, m.country);
-      setTimeout(() => rotateToLocation(m.lat, m.lng), 500);
+      setTimeout(() => rotateToLocation(lat, lon), 500);
       return;
     }
   } catch (err) {
@@ -2104,11 +2139,13 @@ async function checkSavedLocation() {
   if (saved) {
     try {
       const { city, country, lat, lon } = JSON.parse(saved);
-      if (city && country && typeof lat === 'number' && typeof lon === 'number') {
-        currentLocation = { city, country, lat, lon };
-        addUserMarker(lat, lon, city, country);
+      const latN = toFiniteNumber(lat);
+      const lonN = toFiniteNumber(lon);
+      if (city && country && latN !== null && lonN !== null) {
+        currentLocation = { city, country, lat: latN, lon: lonN };
+        addUserMarker(latN, lonN, city, country);
         showLocationSummary(city, country);
-        setTimeout(() => rotateToLocation(lat, lon), 500);
+        setTimeout(() => rotateToLocation(latN, lonN), 500);
       }
     } catch (e) {
       localStorage.removeItem(STORAGE_KEY);
