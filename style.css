@@ -1480,3 +1480,54 @@ body,
 .country-hover-tooltip--zero .country-hover-tooltip__count{
   opacity: 0.75;
 }
+
+/* ===== Global map: country hover tooltip ===== */
+.country-hover-tooltip-wrap{
+  /* positioned in JS */
+}
+
+
+.country-hover-tooltip{
+  position: relative;
+  background: rgba(27, 26, 23, 0.88);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  padding: 10px 12px;
+  box-shadow: 0 18px 44px rgba(0,0,0,0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--color-text);
+  white-space: nowrap;
+  min-width: 140px;
+}
+
+.country-hover-tooltip::after{
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  transform: translateX(-50%) rotate(45deg);
+  background: rgba(27, 26, 23, 0.88);
+  border-right: 1px solid var(--color-border-strong);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.country-hover-tooltip__title{
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
+
+.country-hover-tooltip__count{
+  margin-top: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.country-hover-tooltip--zero .country-hover-tooltip__count{
+  opacity: 0.75;
+}
+
