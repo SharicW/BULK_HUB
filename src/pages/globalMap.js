@@ -1288,7 +1288,7 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
   markerGroup.add(sprite);
 
   // "хитбокс" для удобного наведения (невидимый шар)
-  const hitGeom = new THREE.SphereGeometry(0.25, 10, 10);
+  const hitGeom = new THREE.SphereGeometry(0.55, 10, 10);
   const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0, depthWrite: false });
   const hitMesh = new THREE.Mesh(hitGeom, hitMat);
   hitMesh.userData.publicCountry = { name, count, lat, lon };
@@ -1961,5 +1961,6 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
 
