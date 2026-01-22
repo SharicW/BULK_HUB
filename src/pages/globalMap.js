@@ -1609,7 +1609,7 @@ function buildCountryOutlineMesh(geometry) {
   geom.computeBoundingSphere();
 
   const mat = new THREE.LineBasicMaterial({
-    color: 0xf7b32b,
+    color: 0xffffff,
     transparent: true,
     opacity: 0.9,
     depthTest: true,
@@ -1720,6 +1720,11 @@ function processPublicHoverPick() {
   publicMouse.set(x, y);
   publicRaycaster.setFromCamera(publicMouse, camera);
 
+  // гарантируем актуальные матрицы перед raycast
+  try { globeGroup?.updateMatrixWorld?.(true); } catch {}
+  try { camera?.updateMatrixWorld?.(true); } catch {}
+  try { globeSphereMesh?.updateMatrixWorld?.(true); } catch {}
+
   const hits = publicRaycaster.intersectObject(globeSphereMesh, true);
   if (!hits || !hits.length) {
     clearPublicHoverTooltip();
@@ -1727,7 +1732,10 @@ function processPublicHoverPick() {
   }
 
   const hitPoint = hits[0].point;
-  const { lat, lon } = vector3ToLatLon(hitPoint);
+  // ВАЖНО: hitPoint в world-space (глобус может быть повернут).
+  // Переводим в local-space сферы/группы, чтобы lat/lon совпадали с topojson-странами.
+  const hitLocal = globeSphereMesh.worldToLocal(hitPoint.clone());
+  const { lat, lon } = vector3ToLatLon(hitLocal);
 
   const country = findCountryAt(lat, lon);
   if (!country) {
