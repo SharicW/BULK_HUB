@@ -1437,7 +1437,7 @@ function startPublicMarkersRefresh() {
   }, PUBLIC_COUNTRY_REFRESH_MS);
 }
 
-async async function refreshPublicCountryMarkers() {
+ async function refreshPublicCountryMarkers() {
   // троттлинг (защита от частых вызовов при повторном монтировании)
   const now = Date.now();
   if (now - lastPublicMarkersFetchAt < 2500) return;
@@ -2403,3 +2403,4 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
