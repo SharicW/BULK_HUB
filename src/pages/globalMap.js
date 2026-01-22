@@ -3,15 +3,6 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { createEl } from '../utils/dom.js';
 
-/*
-  CHANGELOG (public countries hover):
-  - Публичные маркеры/точки больше НЕ рисуются (чтобы ничего не накладывалось).
-  - Загружаем реальные полигоны стран (countries-110m) и определяем страну по наведению курсора (raycast по сфере + point-in-polygon).
-  - При наведении на страну показываем только число пользователей, отметивших эту страну (tooltip).
-  - Счётчики стран читаются из localStorage-кеша сразу при входе на страницу и обновляются периодически из /markers.
-  - Добавлен локальный fallback: если положишь countries-110m.json/tsv в /public/data, будет грузиться локально.
-*/
-
 import { openLoginModal } from '../ui/loginModal.js';
 
 const CONFIG = {
@@ -216,12 +207,22 @@ let lastPublicMarkersFetchAt = 0;
 // --- Public hover (show count only on hover) ---
 let publicRaycaster = null;
 let publicMouse = null;
-let publicTooltipObject = null; // CSS2DObject
-let publicTooltipDiv = null;
+let publicTooltipObject = null; // CSS2DObject (legacy, not used for cursor tooltip)
+let publicTooltipEl = null; // DOM element for hover tooltip
+let publicPointerX = 0;
+let publicPointerY = 0;
+let publicTooltipVisible = false;
+let publicTooltipNameEl = null;
+let publicTooltipCountEl = null;
 let publicPointerMoveHandler = null;
 let publicPointerLeaveHandler = null;
 let publicNeedsPick = false;
 let publicLastPointerEvent = null;
+
+// --- Country hover highlight (outline) ---
+let hoverCountryKey = null;
+let hoverCountryOutline = null; // THREE.LineSegments
+const countryOutlineCache = new Map(); // key -> THREE.LineSegments
 
 let isUserInteracting = false;
 let lastInteractionTime = 0;
@@ -300,6 +301,14 @@ export function destroyGlobalMap() {
   // detach hover handlers for public markers
   detachPublicHoverHandlers();
 
+  // remove hover tooltip DOM
+  if (publicTooltipEl?.parentNode) {
+    try { publicTooltipEl.parentNode.removeChild(publicTooltipEl); } catch {}
+  }
+  publicTooltipEl = null;
+  publicTooltipVisible = false;
+
+
 
   // stop public markers refresh
   if (publicMarkersTimer) {
@@ -354,6 +363,21 @@ export function destroyGlobalMap() {
       }
     });
   }
+
+  // dispose cached country outlines (hover highlight)
+  try {
+    for (const obj of countryOutlineCache.values()) {
+      try { obj.parent?.remove(obj); } catch {}
+      try { obj.geometry?.dispose?.(); } catch {}
+      try {
+        if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+        else obj.material?.dispose?.();
+      } catch {}
+    }
+    countryOutlineCache.clear();
+  } catch {}
+  hoverCountryOutline = null;
+  hoverCountryKey = null;
 
   if (glowTexture) {
     glowTexture.dispose?.();
@@ -592,6 +616,11 @@ function setupControls() {
   controls.addEventListener('end', () => {
     isUserInteracting = false;
     lastInteractionTime = Date.now();
+  
+  controls.addEventListener('change', () => {
+    // когда камера/глобус двигаются, обновляем hover под текущим курсором
+    if (publicLastPointerEvent) publicNeedsPick = true;
+  });
   });
 }
 
@@ -1511,39 +1540,143 @@ function optimisticUpdatePublicCountryCounts(prevCountry, nextCountry, coords) {
 
 
 
-// --- Public markers hover tooltip (only number on hover) ---
+
+// --- Country hover highlight (outline) ---
+function clearCountryHighlight() {
+  hoverCountryKey = null;
+  if (hoverCountryOutline?.parent) {
+    try { hoverCountryOutline.parent.remove(hoverCountryOutline); } catch {}
+  }
+  hoverCountryOutline = null;
+}
+
+function setCountryHighlight(country) {
+  if (!country || !country.key || !country.geometry) return;
+  if (!globeGroup) return;
+
+  if (hoverCountryKey === country.key && hoverCountryOutline?.parent === globeGroup) return;
+
+  clearCountryHighlight();
+
+  const outline = getCountryOutlineMesh(country);
+  if (!outline) return;
+
+  hoverCountryKey = country.key;
+  hoverCountryOutline = outline;
+
+  // гарантируем, что объект не висит где-то ещё
+  if (outline.parent && outline.parent !== globeGroup) {
+    try { outline.parent.remove(outline); } catch {}
+  }
+  if (outline.parent !== globeGroup) {
+    globeGroup.add(outline);
+  }
+}
+
+function getCountryOutlineMesh(country) {
+  const key = country.key;
+  const cached = countryOutlineCache.get(key);
+  if (cached) return cached;
+
+  const mesh = buildCountryOutlineMesh(country.geometry);
+  if (!mesh) return null;
+
+  countryOutlineCache.set(key, mesh);
+  return mesh;
+}
+
+function buildCountryOutlineMesh(geometry) {
+  if (!geometry) return null;
+
+  const radius = (CONFIG?.globe?.radius || 10) + 0.18; // чуть выше поверхности
+  const positions = [];
+
+  const addRing = (ring) => {
+    if (!Array.isArray(ring) || ring.length < 2) return;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const a = ring[i];
+      const b = ring[i + 1];
+      if (!a || !b) continue;
+
+      const lon1 = Number(a[0]); const lat1 = Number(a[1]);
+      const lon2 = Number(b[0]); const lat2 = Number(b[1]);
+      if (!Number.isFinite(lon1) || !Number.isFinite(lat1) || !Number.isFinite(lon2) || !Number.isFinite(lat2)) continue;
+
+      const v1 = latLonToVector3(lat1, lon1, radius);
+      const v2 = latLonToVector3(lat2, lon2, radius);
+
+      positions.push(v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+    }
+  };
+
+  if (geometry.type === 'Polygon') {
+    for (const ring of geometry.coordinates || []) addRing(ring);
+  } else if (geometry.type === 'MultiPolygon') {
+    for (const poly of geometry.coordinates || []) {
+      for (const ring of poly || []) addRing(ring);
+    }
+  } else {
+    return null;
+  }
+
+  if (positions.length < 6) return null;
+
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geom.computeBoundingSphere();
+
+  const mat = new THREE.LineBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: true,
+    depthWrite: false,
+  });
+  mat.blending = THREE.AdditiveBlending;
+
+  const lines = new THREE.LineSegments(geom, mat);
+  lines.renderOrder = 20;
+  lines.frustumCulled = false;
+
+  return lines;
+}
+
+// --- Country hover tooltip (country name + members count) ---
 function ensurePublicHoverTooltip() {
-  if (publicTooltipObject) return;
+  if (publicTooltipEl) return;
 
   const wrap = document.createElement('div');
-  wrap.className = 'public-country-tooltip';
+  wrap.className = 'country-hover-tooltip-wrap';
   wrap.style.pointerEvents = 'none';
+  wrap.style.position = 'fixed';
+  wrap.style.left = '0px';
+  wrap.style.top = '0px';
+  // центр тултипа в центре курсора
+  wrap.style.transform = 'translate(-50%, -50%)';
+  wrap.style.zIndex = '9999';
   wrap.style.display = 'none';
-  wrap.style.transform = 'translateY(-10px)';
-  wrap.style.position = 'relative';
-  wrap.style.zIndex = '999999';
+  wrap.style.transition = 'none';
+  wrap.style.willChange = 'left, top';
 
-  wrap.innerHTML = `
-    <div style="
-      background: rgba(255,255,255,0.95);
-      color: #111;
-      padding: 8px 10px;
-      border-radius: 10px;
-      box-shadow: 0 10px 24px rgba(0,0,0,0.35);
-      font-weight: 800;
-      font-size: 14px;
-      line-height: 1;
-      white-space: nowrap;
-      min-width: 44px;
-      text-align: center;
-    "></div>
-  `;
+  // DOM structure (no inline colors — всё в CSS)
+  const bubble = document.createElement('div');
+  bubble.className = 'country-hover-tooltip';
 
-  publicTooltipDiv = wrap.firstElementChild;
+  const title = document.createElement('div');
+  title.className = 'country-hover-tooltip__title';
 
-  const obj = new CSS2DObject(wrap);
-  obj.position.set(0, 0.55, 0);
-  publicTooltipObject = obj;
+  const count = document.createElement('div');
+  count.className = 'country-hover-tooltip__count';
+
+  bubble.appendChild(title);
+  bubble.appendChild(count);
+  wrap.appendChild(bubble);
+
+  publicTooltipNameEl = title;
+  publicTooltipCountEl = count;
+
+  document.body.appendChild(wrap);
+  publicTooltipEl = wrap;
 }
 
 function attachPublicHoverHandlers() {
@@ -1554,6 +1687,15 @@ function attachPublicHoverHandlers() {
 
   publicPointerMoveHandler = (ev) => {
     publicLastPointerEvent = ev;
+    publicPointerX = ev.clientX;
+    publicPointerY = ev.clientY;
+
+    // если тултип уже показан — двигаем его вместе с курсором
+    if (publicTooltipVisible && publicTooltipEl) {
+      publicTooltipEl.style.left = `${publicPointerX}px`;
+      publicTooltipEl.style.top = `${publicPointerY}px`;
+    }
+
     publicNeedsPick = true;
   };
 
@@ -1607,6 +1749,11 @@ function processPublicHoverPick() {
   publicMouse.set(x, y);
   publicRaycaster.setFromCamera(publicMouse, camera);
 
+  // гарантируем актуальные матрицы перед raycast
+  try { globeGroup?.updateMatrixWorld?.(true); } catch {}
+  try { camera?.updateMatrixWorld?.(true); } catch {}
+  try { globeSphereMesh?.updateMatrixWorld?.(true); } catch {}
+
   const hits = publicRaycaster.intersectObject(globeSphereMesh, true);
   if (!hits || !hits.length) {
     clearPublicHoverTooltip();
@@ -1614,7 +1761,10 @@ function processPublicHoverPick() {
   }
 
   const hitPoint = hits[0].point;
-  const { lat, lon } = vector3ToLatLon(hitPoint);
+  // ВАЖНО: hitPoint в world-space (глобус может быть повернут).
+  // Переводим в local-space сферы/группы, чтобы lat/lon совпадали с topojson-странами.
+  const hitLocal = globeSphereMesh.worldToLocal(hitPoint.clone());
+  const { lat, lon } = vector3ToLatLon(hitLocal);
 
   const country = findCountryAt(lat, lon);
   if (!country) {
@@ -1622,68 +1772,49 @@ function processPublicHoverPick() {
     return;
   }
 
+  setCountryHighlight(country);
+
   const key = country.key;
   const count = Number(publicCountryCounts.get(key) || 0);
-
-  if (!count || count <= 0) {
-    clearPublicHoverTooltip();
-    return;
-  }
 
   showPublicHoverTooltipAt(hitPoint, { name: country.name, count });
 }
 
-function showPublicHoverTooltipAt(worldPoint, data) {
+function showPublicHoverTooltipAt(_worldPoint, data) {
   ensurePublicHoverTooltip();
-  if (!publicTooltipObject || !publicTooltipDiv || !globeGroup) return;
+  if (!publicTooltipEl) return;
 
-  // показываем только число
+  const name = String(data?.name || '').trim();
   const count = Number(data?.count || 0);
-  publicTooltipDiv.textContent = count.toLocaleString();
-  publicTooltipDiv.title = String(data?.name || '');
 
-  // добавляем тултип в globeGroup
-  if (publicTooltipObject.parent && publicTooltipObject.parent !== globeGroup) {
-    try { publicTooltipObject.parent.remove(publicTooltipObject); } catch {}
+  if (publicTooltipNameEl) publicTooltipNameEl.textContent = name || 'Unknown';
+  if (publicTooltipCountEl) publicTooltipCountEl.textContent = `Members: ${count.toLocaleString()}`;
+
+  // стиль для нулевых значений
+  const bubble = publicTooltipEl.querySelector?.('.country-hover-tooltip');
+  if (bubble) {
+    bubble.classList.toggle('country-hover-tooltip--zero', !(count > 0));
   }
-  if (publicTooltipObject.parent !== globeGroup) {
-    globeGroup.add(publicTooltipObject);
-  }
 
-  // позиция: над точкой пересечения (чуть приподнимаем)
-  const local = globeGroup.worldToLocal(worldPoint.clone());
-  const dir = local.clone().normalize();
-  publicTooltipObject.position.copy(dir.multiplyScalar(CONFIG.globe.radius + 0.55));
-
-  publicTooltipObject.element.style.display = 'block';
+  // позиция: центр тултипа = курсор
+  publicTooltipEl.style.left = `${publicPointerX}px`;
+  publicTooltipEl.style.top = `${publicPointerY}px`;
+  publicTooltipEl.style.display = 'block';
+  publicTooltipVisible = true;
 }
 
 
 function clearPublicHoverTooltip() {
-  if (publicTooltipObject?.parent) {
-    try { publicTooltipObject.parent.remove(publicTooltipObject); } catch {}
+  if (publicTooltipEl) {
+    publicTooltipEl.style.display = 'none';
   }
-  if (publicTooltipObject?.element) {
-    publicTooltipObject.element.style.display = 'none';
-  }
+  publicTooltipVisible = false;
+  clearCountryHighlight();
 }
 
-function updatePublicMarkersVisibility(camDir) {
-  // Маркеры мы не рисуем, но если tooltip остался видимым,
-  // прячем его, когда точка уходит на обратную сторону.
-  if (!camDir) return;
-  if (!publicTooltipObject?.parent) return;
-
-  try {
-    const wp = new THREE.Vector3();
-    publicTooltipObject.getWorldPosition(wp);
-    const dir = wp.clone().normalize();
-    if (dir.dot(camDir) <= 0.05) {
-      clearPublicHoverTooltip();
-    }
-  } catch {
-    // ignore
-  }
+function updatePublicMarkersVisibility(_camDir) {
+  // Tooltip привязан к курсору, а не к 3D-точке — видимость контролируем через hover/pick и pointerleave.
+  return;
 }
 
 function setupLocationPanel() {
@@ -2064,6 +2195,7 @@ function animate() {
     // если reduce motion — можно выключить авто-вращение
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     if (!reduceMotion) globeGroup.rotation.y += CONFIG.globe.rotationSpeed;
+    if (publicLastPointerEvent) publicNeedsPick = true;
   }
 
   if (userMarker) {
