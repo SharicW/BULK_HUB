@@ -75,3 +75,10 @@ export async function getXTop(limit = 15) {
 export async function findXUser(username) {
   return request(`/x/${encodeURIComponent(username)}`);
 }
+
+// --- X posts for Member Contributions ---
+export async function getXPosts(username, limit = 30, offset = 0) {
+  return request(
+    `/x/posts?username=${encodeURIComponent(username)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`
+  );
+}
