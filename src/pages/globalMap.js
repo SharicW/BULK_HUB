@@ -2248,3 +2248,4 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+}
