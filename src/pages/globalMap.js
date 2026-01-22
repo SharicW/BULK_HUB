@@ -92,19 +92,25 @@ function _canonCountryKey(country) {
   return k;
 }
 
-function _readPublicCountryCache() {
+function _readPublicCountryCache({ allowExpired = false } = {}) {
   if (_publicCountryCache?.items?.length) return _publicCountryCache;
   try {
     const raw = localStorage.getItem(PUBLIC_COUNTRY_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.ts || !Array.isArray(parsed?.items)) return null;
-    if (Date.now() - parsed.ts > PUBLIC_COUNTRY_CACHE_TTL_MS) return null;
+    if (!allowExpired && Date.now() - parsed.ts > PUBLIC_COUNTRY_CACHE_TTL_MS) return null;
     _publicCountryCache = parsed;
     return parsed;
   } catch {
     return null;
   }
+}
+
+
+function _readPublicCountryCacheAny() {
+  // читаем кеш даже если TTL истёк — нужен для мгновенного восстановления при возврате на вкладку
+  return _readPublicCountryCache({ allowExpired: true });
 }
 
 function _writePublicCountryCache(items) {
@@ -190,6 +196,7 @@ let publicMarkersGroup = null;
 let publicMarkersTimer = null;
 let lastPublicMarkersFetchAt = 0;
 const publicCountryLabelObjects = [];
+const publicCountryMarkerGroups = [];
 
 let isUserInteracting = false;
 let lastInteractionTime = 0;
@@ -952,6 +959,8 @@ async function loadLabels() {
 function createLabel(name, lat, lon, size = 1) {
   const labelDiv = document.createElement('div');
   labelDiv.className = 'globe-label';
+  labelDiv.style.position = 'relative';
+  labelDiv.style.zIndex = '10';
 
   const fontSize = Math.max(8, Math.min(12, 10 * size));
   labelDiv.innerHTML = `<span class="label-text" style="font-size: ${fontSize}px">${name}</span>`;
@@ -960,7 +969,7 @@ function createLabel(name, lat, lon, size = 1) {
   const position = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.02);
   labelObject.position.copy(position);
 
-  labelObject.userData = { lat, lon, element: labelDiv, size };
+  labelObject.userData = { lat, lon, element: labelDiv, size, name };
 
   labelObjects.push(labelObject);
   globeGroup.add(labelObject);
@@ -1006,7 +1015,7 @@ function setupPublicMarkersLayer() {
 }
 
 function renderPublicMarkersFromCache() {
-  const cached = _readPublicCountryCache();
+  const cached = _readPublicCountryCacheAny();
   if (!cached?.items?.length) return;
   // рисуем сразу (быстро), чтобы при возврате на вкладку точки не исчезали
   renderPublicCountryMarkers(cached.items);
@@ -1022,10 +1031,10 @@ function startPublicMarkersRefresh() {
   }, PUBLIC_COUNTRY_REFRESH_MS);
 }
 
-async function refreshPublicCountryMarkers() {
+async function refreshPublicCountryMarkers(force = false) {
   // троттлинг (защита от частых вызовов при повторном монтировании)
   const now = Date.now();
-  if (now - lastPublicMarkersFetchAt < 2500) return;
+  if (!force && now - lastPublicMarkersFetchAt < 2500) return;
   lastPublicMarkersFetchAt = now;
 
   // /markers не требует авторизации
@@ -1034,6 +1043,57 @@ async function refreshPublicCountryMarkers() {
   const items = aggregateMarkersByCountry(markers);
   _writePublicCountryCache(items);
   renderPublicCountryMarkers(items);
+}
+
+
+function optimisticUpdatePublicCountryCache(prevCountry, nextCountry) {
+  const prevKey = prevCountry ? _canonCountryKey(prevCountry) : null;
+  const nextKey = nextCountry ? _canonCountryKey(nextCountry) : null;
+  if (!nextKey) return;
+
+  const cached = _readPublicCountryCacheAny();
+  const items = Array.isArray(cached?.items) ? cached.items.slice() : [];
+
+  const byKey = new Map();
+  for (const it of items) {
+    if (it?.key) byKey.set(it.key, { ...it });
+  }
+
+  if (prevKey && prevKey !== nextKey && byKey.has(prevKey)) {
+    const e = byKey.get(prevKey);
+    e.count = Math.max(0, Number(e.count || 0) - 1);
+    if (e.count <= 0) byKey.delete(prevKey);
+    else byKey.set(prevKey, e);
+  }
+
+  if (!prevKey || prevKey !== nextKey) {
+    const centroid = _countryCentroidsByNorm.get(nextKey) || getCountryCentroid(nextCountry);
+    const existing = byKey.get(nextKey) || {
+      key: nextKey,
+      name: centroid?.name || nextCountry,
+      count: 0,
+      lat: centroid?.lat,
+      lon: centroid?.lon,
+    };
+
+    // если lat/lon отсутствуют — попробуем взять из центроида ещё раз
+    if (typeof existing.lat !== 'number' || typeof existing.lon !== 'number') {
+      if (centroid && typeof centroid.lat === 'number' && typeof centroid.lon === 'number') {
+        existing.lat = centroid.lat;
+        existing.lon = centroid.lon;
+      }
+    }
+
+    existing.count = Number(existing.count || 0) + 1;
+    byKey.set(nextKey, existing);
+  }
+
+  const out = Array.from(byKey.values())
+    .filter((x) => typeof x.lat === 'number' && typeof x.lon === 'number' && x.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  _writePublicCountryCache(out);
+  renderPublicCountryMarkers(out);
 }
 
 function aggregateMarkersByCountry(markers) {
@@ -1132,6 +1192,7 @@ function clearThreeGroup(group) {
   }
 
   publicCountryLabelObjects.length = 0;
+  publicCountryMarkerGroups.length = 0;
 }
 
 function renderPublicCountryMarkers(items) {
@@ -1143,12 +1204,50 @@ function renderPublicCountryMarkers(items) {
   // общий материал/текстура
   if (!glowTexture) glowTexture = createGlowTexture();
 
-  for (const item of items || []) {
-    addPublicCountryMarker(item);
+  const list = items || [];
+  for (let i = 0; i < list.length; i++) {
+    addPublicCountryMarker(list[i], i, list.length);
+  }
+  // сразу обновим видимость (если что-то на обратной стороне)
+  updatePublicMarkersVisibility();
+}
+
+
+function hashToUnit(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return (h % 10000) / 10000; // [0..1)
+}
+
+function getLabelJitter(key) {
+  const u = hashToUnit(key || '');
+  const angle = u * Math.PI * 2;
+  const r = 0.14; // смещение подписи в локальной плоскости (уменьшает наложения)
+  return { x: Math.cos(angle) * r, z: Math.sin(angle) * r, y: 0.46 + (u - 0.5) * 0.08 };
+}
+
+function updatePublicMarkersVisibility(camDir) {
+  if (!publicCountryMarkerGroups.length) return;
+  const dir = camDir || camera.position.clone().normalize();
+
+  for (const g of publicCountryMarkerGroups) {
+    if (!g) continue;
+    const wp = new THREE.Vector3();
+    g.getWorldPosition(wp);
+    const n = wp.clone().normalize();
+    const dot = n.dot(dir);
+
+    // порог — чтобы не мелькали на краю
+    const isFacing = dot > 0.08;
+
+    // прячем целиком группу (спрайт + подпись) когда страна на обратной стороне
+    g.visible = isFacing;
   }
 }
 
-function addPublicCountryMarker({ name, count, lat, lon }) {
+function addPublicCountryMarker({ key, name, count, lat, lon }, index = 0, total = 1) {
   if (!publicMarkersGroup) return;
 
   // позиция на поверхности
@@ -1180,6 +1279,9 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
   const labelDiv = document.createElement('div');
   labelDiv.className = 'country-marker-label';
   labelDiv.style.pointerEvents = 'none';
+  // держим подпись поверх обычных лейблов
+  labelDiv.style.position = 'relative';
+  labelDiv.style.zIndex = String(10000 + (total - index));
   labelDiv.innerHTML = `
     <div style="
       background: rgba(255,255,255,0.95);
@@ -1190,7 +1292,7 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
       font-size: 12px;
       line-height: 1.2;
       white-space: nowrap;
-      transform: translateY(-6px);
+      transform: translateY(-14px);
     ">
       <div style="font-weight: 700; margin-bottom: 2px;">${escapeHtml(name)}</div>
       <div style="opacity: 0.75;">Active Users: ${Number(count || 0).toLocaleString()}</div>
@@ -1198,9 +1300,15 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
   `;
 
   const labelObject = new CSS2DObject(labelDiv);
-  labelObject.position.set(0, 0.45, 0);
+
+  const jitter = getLabelJitter(key || name || '');
+  labelObject.position.set(jitter.x, jitter.y, jitter.z);
   markerGroup.add(labelObject);
   publicCountryLabelObjects.push(labelObject);
+
+  // трекаем группы, чтобы прятать на обратной стороне и управлять при обновлениях
+  markerGroup.userData = { type: 'public-country', key, name, count };
+  publicCountryMarkerGroups.push(markerGroup);
 
   publicMarkersGroup.add(markerGroup);
 }
@@ -1251,6 +1359,8 @@ function setupLocationPanel() {
       return;
     }
 
+    const prevCountry = currentLocation?.country || null;
+
     const city = cityInput.value.trim();
     const country = countryInput.value.trim();
     if (!city || !country) return;
@@ -1296,6 +1406,11 @@ function setupLocationPanel() {
       addUserMarker(coords.lat, coords.lon, city, country);
       rotateToLocation(coords.lat, coords.lon);
       showLocationSummary(city, country);
+
+      // ✅ мгновенно обновляем публичный кеш (без перезагрузки сайта)
+      optimisticUpdatePublicCountryCache(prevCountry, country);
+      // ✅ и сразу подтягиваем точные данные с бэка (forced refresh)
+      refreshPublicCountryMarkers(true).catch(() => {});
     } catch (error) {
       showError('Failed to find location. Please try again.');
     } finally {
@@ -1436,6 +1551,11 @@ async function checkSavedLocation() {
         currentLocation = { city, country, lat, lon };
         addUserMarker(lat, lon, city, country);
         showLocationSummary(city, country);
+
+      // ✅ мгновенно обновляем публичный кеш (без перезагрузки сайта)
+      optimisticUpdatePublicCountryCache(prevCountry, country);
+      // ✅ и сразу подтягиваем точные данные с бэка (forced refresh)
+      refreshPublicCountryMarkers(true).catch(() => {});
         setTimeout(() => rotateToLocation(lat, lon), 500);
       }
     } catch (e) {
@@ -1626,7 +1746,10 @@ function updateLabelVisibility() {
     if (labelObj.userData.element) {
       labelObj.userData.element.style.opacity = isFacingCamera ? '1' : '0';
     }
-  }
+ 
+
+  // публичные страны — прячем на обратной стороне
+  updatePublicMarkersVisibility(camDir);
 }
 
 function getStageSize() {
