@@ -1743,14 +1743,15 @@ function updateLabelVisibility() {
     const dot = labelDir.dot(camDir);
     const isFacingCamera = dot > 0.12;
 
-    if (labelObj.userData.element) {
-      labelObj.userData.element.style.opacity = isFacingCamera ? '1' : '0';
-    }
- 
-
-  // публичные страны — прячем на обратной стороне
-  updatePublicMarkersVisibility(camDir);
+if (labelObj.userData.element) {
+  labelObj.userData.element.style.opacity = isFacingCamera ? '1' : '0';
 }
+} // <-- ЭТО закрывает for
+
+// публичные страны — прячем на обратной стороне
+updatePublicMarkersVisibility(camDir);
+} // <-- ЭТО закрывает function updateLabelVisibility()
+
 
 function getStageSize() {
   const rect = stageEl.getBoundingClientRect();
