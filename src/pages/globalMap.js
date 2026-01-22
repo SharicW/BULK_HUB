@@ -1476,7 +1476,6 @@ function updatePublicMarkersVisibility(camDir) {
   }
 }
 
-}
 
 function setupLocationPanel() {
   if (!locationPanel) return;
@@ -1962,4 +1961,5 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
