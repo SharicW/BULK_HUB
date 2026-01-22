@@ -5,20 +5,43 @@ function formatDate(iso) {
   if (!iso) return '';
   try {
     const d = new Date(iso);
+    // ✅ English date
     return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
   } catch {
     return '';
   }
 }
 
+function stripUrls(text) {
+  const t = String(text || '');
+  // ✅ убираем ссылки из текста (чтобы не торчали рядом с картинками)
+  return t.replace(/https?:\/\/\S+/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 function shortText(s, max = 220) {
-  const t = String(s || '').trim();
+  const t = stripUrls(s);
   if (t.length <= max) return t;
   return t.slice(0, max - 1) + '…';
 }
 
+// ✅ поддержка post.media и post.media_urls
+function normalizeMedia(post) {
+  let m = post?.media ?? post?.media_urls ?? [];
+  if (typeof m === 'string') {
+    try { m = JSON.parse(m); } catch { m = []; }
+  }
+  if (!Array.isArray(m)) return [];
+
+  const urls = m
+    .map((x) => (typeof x === 'string' ? x : (x?.media_url_https || x?.media_url || x?.url)))
+    .filter(Boolean)
+    .map((x) => String(x).trim())
+    .filter((x) => x.startsWith('http'));
+
+  return Array.from(new Set(urls));
+}
+
 function createPostCard(post) {
-  // кликабельная карточка (ссылка)
   const a = document.createElement('a');
   a.className = 'x-post-card';
   a.href = post.url || (post.tweet_id ? `https://x.com/i/web/status/${post.tweet_id}` : '#');
@@ -53,6 +76,33 @@ function createPostCard(post) {
   body.className = 'x-post-card__body';
   body.textContent = shortText(post.text);
 
+  // ✅ MEDIA (картинки/thumbnail)
+  const mediaArr = normalizeMedia(post);
+  let mediaBlock = null;
+
+  if (mediaArr.length > 0) {
+    mediaBlock = document.createElement('div');
+    mediaBlock.className = 'x-post-card__media';
+
+    // максимум 4 картинки на карточку
+    mediaArr.slice(0, 4).forEach((src) => {
+      const img = document.createElement('img');
+      img.className = 'x-post-card__img';
+      img.loading = 'lazy';
+      img.alt = 'X media';
+      img.src = src;
+
+      // иногда pbs.twimg.com капризничает — так стабильнее
+      img.referrerPolicy = 'no-referrer';
+      img.crossOrigin = 'anonymous';
+
+      // если не загрузилось — убираем
+      img.addEventListener('error', () => img.remove());
+
+      mediaBlock.appendChild(img);
+    });
+  }
+
   const metrics = document.createElement('div');
   metrics.className = 'x-post-card__metrics';
 
@@ -79,6 +129,7 @@ function createPostCard(post) {
 
   a.appendChild(header);
   a.appendChild(body);
+  if (mediaBlock) a.appendChild(mediaBlock);
   a.appendChild(metrics);
 
   return a;
@@ -217,12 +268,11 @@ export function renderMemberContribution(target) {
     await loadPosts({ reset: true });
   }
 
-  // Enter на инпуте
   function onKeyDown(e) {
     if (e.key === 'Enter') handlePostsSearch();
   }
 
-  // Load more + infinite scroll (мягко)
+  // infinite scroll sentinel
   const sentinel = document.createElement('div');
   sentinel.style.height = '1px';
   sentinel.style.width = '100%';
@@ -247,4 +297,3 @@ export function renderMemberContribution(target) {
     loadMoreBtn.removeEventListener('click', () => loadPosts());
   };
 }
-
