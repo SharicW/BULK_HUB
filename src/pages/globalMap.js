@@ -198,6 +198,8 @@ let globeSphereMesh = null; // for raycasting hover
 let countriesIndex = null; // [{ name, key, bbox, geometry }]
 let countriesIndexPromise = null;
 
+let countriesIndexAbort = null; // AbortController for countries index loading
+
 // --- Public counts (countryKey -> count) ---
 const publicCountryCounts = new Map();
 
@@ -300,6 +302,13 @@ export function destroyGlobalMap() {
 
   // detach hover handlers for public markers
   detachPublicHoverHandlers();
+
+  // abort in-flight countries index loading (otherwise a failed/aborted load can poison hover state)
+  try { countriesIndexAbort?.abort(); } catch {}
+  countriesIndexAbort = null;
+  // allow re-try on next init
+  countriesIndexPromise = null;
+  if (Array.isArray(countriesIndex) && countriesIndex.length === 0) countriesIndex = null;
 
   // remove hover tooltip DOM
   if (publicTooltipEl?.parentNode) {
@@ -1104,13 +1113,18 @@ function getCountryCentroid(countryName) {
 // Это позволяет показывать число пользователей при наведении *на страну*, а не на маркер.
 
 async function loadCountriesIndex() {
-  if (countriesIndex) return countriesIndex;
+  if (countriesIndex && countriesIndex.length) return countriesIndex;
   if (countriesIndexPromise) return countriesIndexPromise;
 
   countriesIndexPromise = (async () => {
     try {
       // topojson уже загружен в init(), но на всякий случай:
       if (!topojson) topojson = await loadTopoJson();
+
+      // If we navigate away while loading, abort to avoid poisoning cached state
+      try { countriesIndexAbort?.abort(); } catch {}
+      countriesIndexAbort = new AbortController();
+      const { signal } = countriesIndexAbort;
 
       // В world-atlas@2 имя страны уже лежит в properties.name, TSV больше не нужен.
       // Сначала пробуем локально (если файл лежит в /public/data), затем CDN.
@@ -1126,7 +1140,7 @@ async function loadCountriesIndex() {
       const looksLikeHtml = (txt) => /^\s*</.test(String(txt || ''));
       const safeFetchJson = async (url) => {
         try {
-          const r = await fetch(url, { cache: 'force-cache' });
+          const r = await fetch(url, { cache: 'no-store', signal });
           if (!r || !r.ok) return null;
 
           // В SPA нередко вместо отсутствующего файла возвращают index.html (200 OK).
@@ -1182,9 +1196,13 @@ async function loadCountriesIndex() {
       countriesIndex = index;
       return index;
     } catch (e) {
-      console.warn('Countries hover index failed:', e);
-      countriesIndex = [];
-      return countriesIndex;
+      if (e?.name !== 'AbortError' && !countriesIndexAbort?.signal?.aborted) {
+        console.warn('Countries hover index failed:', e);
+      }
+      // Do NOT set countriesIndex to [] — it becomes a permanent "loaded but empty" cache and breaks hover.
+      countriesIndex = null;
+      countriesIndexPromise = null;
+      return null;
     }
   })();
 
@@ -2313,5 +2331,3 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
-
-
