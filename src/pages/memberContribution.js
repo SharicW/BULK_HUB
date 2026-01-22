@@ -5,7 +5,7 @@ function formatDate(iso) {
   if (!iso) return '';
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: '2-digit' });
   } catch {
     return '';
   }
@@ -247,3 +247,4 @@ export function renderMemberContribution(target) {
     loadMoreBtn.removeEventListener('click', () => loadPosts());
   };
 }
+
