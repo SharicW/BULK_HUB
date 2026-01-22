@@ -217,7 +217,8 @@ let lastPublicMarkersFetchAt = 0;
 let publicRaycaster = null;
 let publicMouse = null;
 let publicTooltipObject = null; // CSS2DObject
-let publicTooltipDiv = null;
+let publicTooltipNameDiv = null;
+let publicTooltipCountDiv = null;
 let publicPointerMoveHandler = null;
 let publicPointerLeaveHandler = null;
 let publicNeedsPick = false;
@@ -1519,30 +1520,21 @@ function ensurePublicHoverTooltip() {
   wrap.className = 'public-country-tooltip';
   wrap.style.pointerEvents = 'none';
   wrap.style.display = 'none';
-  wrap.style.transform = 'translateY(-10px)';
-  wrap.style.position = 'relative';
-  wrap.style.zIndex = '999999';
 
+  // Внутри — "пузырь" с названием страны и счётчиком.
+  // Разметка + стили в style.css (см. .public-country-tooltip*).
   wrap.innerHTML = `
-    <div style="
-      background: rgba(255,255,255,0.95);
-      color: #111;
-      padding: 8px 10px;
-      border-radius: 10px;
-      box-shadow: 0 10px 24px rgba(0,0,0,0.35);
-      font-weight: 800;
-      font-size: 14px;
-      line-height: 1;
-      white-space: nowrap;
-      min-width: 44px;
-      text-align: center;
-    "></div>
+    <div class="public-country-tooltip__bubble">
+      <div class="public-country-tooltip__name"></div>
+      <div class="public-country-tooltip__count"></div>
+    </div>
   `;
 
-  publicTooltipDiv = wrap.firstElementChild;
+  publicTooltipNameDiv = wrap.querySelector('.public-country-tooltip__name');
+  publicTooltipCountDiv = wrap.querySelector('.public-country-tooltip__count');
 
   const obj = new CSS2DObject(wrap);
-  obj.position.set(0, 0.55, 0);
+  obj.position.set(0, 0, 0);
   publicTooltipObject = obj;
 }
 
@@ -1630,17 +1622,32 @@ function processPublicHoverPick() {
     return;
   }
 
-  showPublicHoverTooltipAt(hitPoint, { name: country.name, count });
+  // Стараемся привязать тултип к центроиду страны (из labels.json), чтобы не "дёргался" при движении мыши.
+  const centroid = getCountryCentroid(country.name) || getCountryCentroid(country.key);
+  const displayName = centroid?.name || country.name;
+
+  const anchorPoint = centroid
+    ? latLonToVector3(centroid.lat, centroid.lon, CONFIG.globe.radius)
+    : hitPoint;
+
+  showPublicHoverTooltipAt(anchorPoint, { name: displayName, count });
 }
 
 function showPublicHoverTooltipAt(worldPoint, data) {
   ensurePublicHoverTooltip();
-  if (!publicTooltipObject || !publicTooltipDiv || !globeGroup) return;
+  if (!publicTooltipObject || !globeGroup) return;
 
-  // показываем только число
   const count = Number(data?.count || 0);
-  publicTooltipDiv.textContent = count.toLocaleString();
-  publicTooltipDiv.title = String(data?.name || '');
+  const name = String(data?.name || '');
+
+  if (!count || count <= 0 || !name) {
+    clearPublicHoverTooltip();
+    return;
+  }
+
+  if (publicTooltipNameDiv) publicTooltipNameDiv.textContent = name;
+  if (publicTooltipCountDiv) publicTooltipCountDiv.textContent = count.toLocaleString();
+  if (publicTooltipObject.element) publicTooltipObject.element.title = name;
 
   // добавляем тултип в globeGroup
   if (publicTooltipObject.parent && publicTooltipObject.parent !== globeGroup) {
@@ -1650,12 +1657,18 @@ function showPublicHoverTooltipAt(worldPoint, data) {
     globeGroup.add(publicTooltipObject);
   }
 
-  // позиция: над точкой пересечения (чуть приподнимаем)
+  // позиция: над страной (радиально наружу).
+  // Чтобы тултип "жил" вместе с глобусом — держим его в globeGroup.
   const local = globeGroup.worldToLocal(worldPoint.clone());
   const dir = local.clone().normalize();
-  publicTooltipObject.position.copy(dir.multiplyScalar(CONFIG.globe.radius + 0.55));
 
-  publicTooltipObject.element.style.display = 'block';
+  // чуть ближе к поверхности, чем раньше — меньше перекрывает соседние надписи
+  publicTooltipObject.position.copy(dir.multiplyScalar(CONFIG.globe.radius + 0.38));
+
+  if (publicTooltipObject.element) {
+    publicTooltipObject.element.style.display = 'block';
+    publicTooltipObject.element.style.opacity = '1';
+  }
 }
 
 
@@ -1665,22 +1678,39 @@ function clearPublicHoverTooltip() {
   }
   if (publicTooltipObject?.element) {
     publicTooltipObject.element.style.display = 'none';
+    publicTooltipObject.element.style.opacity = '0';
   }
 }
 
 function updatePublicMarkersVisibility(camDir) {
-  // Маркеры мы не рисуем, но если tooltip остался видимым,
-  // прячем его, когда точка уходит на обратную сторону.
+  // Тултип "живёт" в globeGroup, но CSS2DRenderer не знает про окклюзию сферой.
+  // Поэтому вручную гасим его на обратной стороне и плавно фейдим возле края.
   if (!camDir) return;
   if (!publicTooltipObject?.parent) return;
+  if (!publicTooltipObject.element) return;
 
   try {
+    const center = new THREE.Vector3();
+    globeGroup?.getWorldPosition(center);
+
+    // направление камеры от центра глобуса
+    const cam = camera?.position ? camera.position.clone().sub(center).normalize() : camDir.clone();
+
+    // направление точки тултипа от центра глобуса (в МИРЕ, с учётом вращения globeGroup)
     const wp = new THREE.Vector3();
     publicTooltipObject.getWorldPosition(wp);
-    const dir = wp.clone().normalize();
-    if (dir.dot(camDir) <= 0.05) {
-      clearPublicHoverTooltip();
-    }
+    const dir = wp.clone().sub(center).normalize();
+
+    const dot = dir.dot(cam);
+
+    // fade: начиная с ~0.03 и полностью видим с ~0.16
+    const fadeStart = 0.03;
+    const fadeEnd = 0.16;
+    let a = (dot - fadeStart) / (fadeEnd - fadeStart);
+    a = Math.max(0, Math.min(1, a));
+
+    publicTooltipObject.element.style.opacity = String(a);
+    publicTooltipObject.element.style.display = a > 0.001 ? 'block' : 'none';
   } catch {
     // ignore
   }
