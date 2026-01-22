@@ -702,7 +702,7 @@ async function loadAndCreateLandPoints() {
 
 async function loadCountryBorders() {
   try {
-    const response = await fetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json');
+    const response = await fetch('https://unpkg.com/world-atlas@2.0.2/labels.json');
     const topoData = await response.json();
 
     // ВАЖНО: topojson.mesh сильно быстрее, чем feature->каждая страна->линии
@@ -2160,4 +2160,5 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
