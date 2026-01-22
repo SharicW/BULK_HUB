@@ -1310,7 +1310,7 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-
+}
 // --- Public markers hover tooltip (only number on hover) ---
 function ensurePublicHoverTooltip() {
   if (publicTooltipObject) return;
@@ -1962,3 +1962,4 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
