@@ -511,13 +511,20 @@ function createLocationPanel() {
 
 async function loadTopoJson() {
   try {
+    // ESM import (быстро, без глобалов)
     const mod = await import('https://esm.sh/topojson-client@3.1.0');
     return mod;
   } catch (e) {
+    // Fallback: грузим как <script> (создаёт window.topojson)
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js');
+      if (window.topojson) return window.topojson;
+    } catch {}
     await loadScript('https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js');
     return window.topojson;
   }
 }
+
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -1076,37 +1083,34 @@ async function loadCountriesIndex() {
       // topojson уже загружен в init(), но на всякий случай:
       if (!topojson) topojson = await loadTopoJson();
 
-      // world-atlas: геометрия + табличка id->name
-      // сначала пробуем локально (если положишь файлы в /public/data), затем CDN
+      // В world-atlas@2 имя страны уже лежит в properties.name, TSV больше не нужен.
+      // Сначала пробуем локально (если файл лежит в /public/data), затем CDN.
       const topoUrls = [
-        './data/countries-110m.json',
         '/data/countries-110m.json',
-        'https://unpkg.com/world-atlas@2.0.2/countries-110m.json',
-      ];
-      const tsvUrls = [
-        './data/countries-110m.tsv',
-        '/data/countries-110m.tsv',
-        'https://unpkg.com/world-atlas@2.0.2/countries-110m.tsv',
+        './data/countries-110m.json',
+        // CDN fallback (обычно без CORS проблем)
+        'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
+        // запасной CDN
+        'https://unpkg.com/world-atlas@2/countries-110m.json',
       ];
 
       const looksLikeHtml = (txt) => /^\s*</.test(String(txt || ''));
-      const safeFetchText = async (url) => {
+      const safeFetchJson = async (url) => {
         try {
           const r = await fetch(url, { cache: 'force-cache' });
           if (!r || !r.ok) return null;
-          const txt = await r.text();
-          if (!txt || looksLikeHtml(txt)) return null; // SPA/404 часто возвращают index.html
-          return txt;
-        } catch {
-          return null;
-        }
-      };
 
-      const safeFetchJson = async (url) => {
-        const txt = await safeFetchText(url);
-        if (!txt) return null;
-        try {
-          return JSON.parse(txt);
+          // В SPA нередко вместо отсутствующего файла возвращают index.html (200 OK).
+          // Поэтому читаем как текст и отбрасываем HTML.
+          const ct = (r.headers.get('content-type') || '').toLowerCase();
+          const txt = await r.text();
+
+          if (!txt) return null;
+          if (ct.includes('text/html')) return null;
+          if (looksLikeHtml(txt)) return null;
+
+          const data = JSON.parse(txt);
+          return data;
         } catch {
           return null;
         }
@@ -1121,32 +1125,29 @@ async function loadCountriesIndex() {
         }
       }
 
-      let tsvText = null;
-      for (const url of tsvUrls) {
-        const txt = await safeFetchText(url);
-        // TSV должен содержать табы и хотя бы пару строк
-        if (txt && txt.includes('\t') && txt.split('\n').length >= 2) {
-          tsvText = txt;
-          break;
-        }
+      if (!topoData) {
+        throw new Error('countries-110m.json not available (invalid JSON or HTML fallback)');
       }
 
-      if (!topoData) throw new Error('countries-110m.json not available (invalid JSON or HTML fallback)');
-      if (!tsvText) throw new Error('countries-110m.tsv not available (invalid TSV or HTML fallback)');
-
-      const idToName = parseIdNameTSV(tsvText);
-      const features = topojson.feature(topoData, topoData.objects.countries)?.features || [];
+      const features =
+        topojson.feature(topoData, topoData.objects.countries)?.features || [];
 
       const index = [];
       for (const f of features) {
-        const id = String(f?.id ?? f?.properties?.id ?? '');
-        const name = idToName.get(id) || f?.properties?.name || '';
-        const key = _canonCountryKey(name);
+        const name = String(f?.properties?.name || '').trim();
+        if (!name) continue;
 
-        if (!name || !key) continue;
+        const key = _canonCountryKey(name);
+        if (!key) continue;
 
         const bbox = computeGeomBBox(f.geometry);
-        index.push({ id, name, key, bbox, geometry: f.geometry });
+        index.push({
+          id: String(f?.id ?? ''),
+          name,
+          key,
+          bbox,
+          geometry: f.geometry,
+        });
       }
 
       countriesIndex = index;
@@ -1161,23 +1162,7 @@ async function loadCountriesIndex() {
   return countriesIndexPromise;
 }
 
-function parseIdNameTSV(tsvText) {
-  const map = new Map();
-  const lines = String(tsvText || '').trim().split('\n').filter(Boolean);
-  if (lines.length < 2) return map;
 
-  const head = lines[0].split('\t');
-  const idxId = Math.max(0, head.indexOf('id'));
-  const idxName = head.indexOf('name') >= 0 ? head.indexOf('name') : 1;
-
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split('\t');
-    const id = String(cols[idxId] || '').trim();
-    const name = String(cols[idxName] || '').trim();
-    if (id && name) map.set(id, name);
-  }
-  return map;
-}
 
 function computeGeomBBox(geom) {
   let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
