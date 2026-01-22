@@ -2,18 +2,101 @@ import { createEl } from '../utils/dom.js';
 
 const PASSWORD_MIN_LENGTH = 8;
 
+// === BACKEND (auth) ===
+const API_BASE =
+  window.BULK_AUTH_API_BASE ||
+  'https://bulkhubdatabase-production.up.railway.app';
+
+// ключи токена (как в loginModal.js / globalMap.js)
+const LS_TOKEN = 'bulk_auth_token';
+const SS_TOKEN = 'bulk_auth_token_session';
+
+function getAuthToken() {
+  return localStorage.getItem(LS_TOKEN) || sessionStorage.getItem(SS_TOKEN);
+}
+
+function clearAuthToken() {
+  localStorage.removeItem(LS_TOKEN);
+  sessionStorage.removeItem(SS_TOKEN);
+}
+
+async function api(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth) {
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const txt = await res.text();
+  const looksLikeHtml = /^\s*</.test(txt);
+
+  let data = null;
+  if (txt && !looksLikeHtml) {
+    try {
+      data = JSON.parse(txt);
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+
+  // если сервер вернул не JSON (например HTML), не считаем это успешным ответом
+  if (data === null) {
+    const err = new Error('API returned non-JSON response');
+    err.status = res.status;
+    throw err;
+  }
+
+  return data;
+}
+
+async function logout() {
+  // logout на бэке опционален, но если он есть — вызовем
+  try {
+    await api('/auth/logout', { method: 'POST', auth: true });
+  } catch {
+    // ignore
+  }
+  clearAuthToken();
+  window.dispatchEvent(new CustomEvent('bulk:logout'));
+  window.location.reload();
+}
+
 export function renderProfile(target) {
   target.innerHTML = '';
   const wrapper = createEl('div', { className: 'page-shell' });
+
   wrapper.innerHTML = `
     <div class="page-header">
       <div>
         <p class="eyebrow">Account</p>
         <h1>Profile settings</h1>
-        <p class="muted">Secure your account by updating your password.</p>
+        <p class="muted">Manage your session and update your password.</p>
       </div>
     </div>
+
     <div class="card-grid single profile-grid">
+      <section class="card profile-card" aria-labelledby="account-section-title">
+        <div class="card-title" id="account-section-title">Account</div>
+        <p class="card-muted">Signed in as <span id="profile-email" class="mono">—</span></p>
+        <p class="field-error" id="profile-auth-error" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" id="logout-btn">Log out</button>
+        </div>
+      </section>
+
       <section class="card profile-card" aria-labelledby="password-section-title">
         <div class="card-title" id="password-section-title">Password</div>
         <p class="card-muted">Change your password to keep the account secure.</p>
@@ -32,8 +115,9 @@ export function renderProfile(target) {
             <input type="password" id="confirm-password-input" name="confirmPassword" autocomplete="new-password" placeholder="Re-enter new password" required />
             <p class="field-error" id="confirm-password-error" aria-live="polite"></p>
           </div>
+          <p class="field-error" id="password-submit-error" aria-live="polite"></p>
           <div class="form-actions">
-            <button type="submit" class="btn-primary">Change password</button>
+            <button type="submit" class="btn-primary" id="change-password-btn">Change password</button>
           </div>
         </form>
       </section>
@@ -42,12 +126,47 @@ export function renderProfile(target) {
 
   target.appendChild(wrapper);
 
+  const emailEl = wrapper.querySelector('#profile-email');
+  const authErrorEl = wrapper.querySelector('#profile-auth-error');
+  const logoutBtn = wrapper.querySelector('#logout-btn');
+
   const passwordForm = wrapper.querySelector('#password-form');
   const currentPasswordInput = wrapper.querySelector('#current-password-input');
   const newPasswordInput = wrapper.querySelector('#new-password-input');
   const confirmPasswordInput = wrapper.querySelector('#confirm-password-input');
   const newPasswordError = wrapper.querySelector('#new-password-error');
   const confirmPasswordError = wrapper.querySelector('#confirm-password-error');
+  const submitErrorEl = wrapper.querySelector('#password-submit-error');
+  const changePwdBtn = wrapper.querySelector('#change-password-btn');
+
+  let disposed = false;
+
+  function setBusy(isBusy) {
+    changePwdBtn.disabled = isBusy;
+    logoutBtn.disabled = isBusy;
+    currentPasswordInput.disabled = isBusy;
+    newPasswordInput.disabled = isBusy;
+    confirmPasswordInput.disabled = isBusy;
+  }
+
+  async function loadMe() {
+    const token = getAuthToken();
+    if (!token) {
+      emailEl.textContent = 'Not signed in';
+      authErrorEl.textContent = 'You are not authenticated. Please sign in again.';
+      return;
+    }
+    try {
+      const me = await api('/auth/me', { method: 'GET', auth: true });
+      if (disposed) return;
+      emailEl.textContent = me?.email || '—';
+      authErrorEl.textContent = '';
+    } catch (e) {
+      if (disposed) return;
+      emailEl.textContent = 'Not signed in';
+      authErrorEl.textContent = e?.message || 'Not authenticated';
+    }
+  }
 
   function validatePasswordFields() {
     let valid = true;
@@ -74,30 +193,70 @@ export function renderProfile(target) {
     return valid;
   }
 
-  function handlePasswordSubmit(event) {
+  async function handlePasswordSubmit(event) {
     event.preventDefault();
+    submitErrorEl.textContent = '';
+
+    const token = getAuthToken();
+    if (!token) {
+      submitErrorEl.textContent = 'Not authenticated. Please sign in again.';
+      return;
+    }
+
     if (!validatePasswordFields()) return;
 
-    console.log('Password change submitted', {
-      currentPassword: currentPasswordInput.value,
-      newPassword: newPasswordInput.value,
-    });
-    // TODO: integrate with password endpoint
-    passwordForm.reset();
+    const currentPwd = currentPasswordInput.value;
+    const newPwd = newPasswordInput.value;
+
+    if (!currentPwd) {
+      submitErrorEl.textContent = 'Please enter your current password.';
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await api('/auth/change-password', {
+        method: 'POST',
+        auth: true,
+        body: {
+          current_password: currentPwd,
+          new_password: newPwd,
+        },
+      });
+
+      if (disposed) return;
+      passwordForm.reset();
+
+      // после смены пароля — разлогиниваем, чтобы токен не продолжал жить
+      await logout();
+    } catch (e) {
+      if (disposed) return;
+      submitErrorEl.textContent = e?.message || 'Password change failed.';
+    } finally {
+      if (!disposed) setBusy(false);
+    }
   }
 
   function handlePasswordInput() {
     validatePasswordFields();
   }
 
+  function handleLogoutClick() {
+    logout();
+  }
+
   passwordForm.addEventListener('submit', handlePasswordSubmit);
   newPasswordInput.addEventListener('input', handlePasswordInput);
   confirmPasswordInput.addEventListener('input', handlePasswordInput);
+  logoutBtn.addEventListener('click', handleLogoutClick);
+
+  loadMe();
 
   return () => {
+    disposed = true;
     passwordForm.removeEventListener('submit', handlePasswordSubmit);
     newPasswordInput.removeEventListener('input', handlePasswordInput);
     confirmPasswordInput.removeEventListener('input', handlePasswordInput);
+    logoutBtn.removeEventListener('click', handleLogoutClick);
   };
 }
-
