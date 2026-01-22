@@ -2,6 +2,16 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { createEl } from '../utils/dom.js';
+
+/*
+  CHANGELOG (public countries hover):
+  - Публичные маркеры/точки больше НЕ рисуются (чтобы ничего не накладывалось).
+  - Загружаем реальные полигоны стран (countries-110m) и определяем страну по наведению курсора (raycast по сфере + point-in-polygon).
+  - При наведении на страну показываем только число пользователей, отметивших эту страну (tooltip).
+  - Счётчики стран читаются из localStorage-кеша сразу при входе на страницу и обновляются периодически из /markers.
+  - Добавлен локальный fallback: если положишь countries-110m.json/tsv в /public/data, будет грузиться локально.
+*/
+
 import { openLoginModal } from '../ui/loginModal.js';
 
 const CONFIG = {
@@ -191,6 +201,15 @@ let globeGroup;
 let landPoints;
 let countryBorders;
 let userMarker = null;
+let globeSphereMesh = null; // for raycasting hover
+
+// --- Countries (polygons) index for hover ---
+let countriesIndex = null; // [{ name, key, bbox, geometry }]
+let countriesIndexPromise = null;
+
+// --- Public counts (countryKey -> count) ---
+const publicCountryCounts = new Map();
+
 // --- Public markers layer (aggregates by country) ---
 let publicMarkersGroup = null;
 let publicMarkersTimer = null;
@@ -582,7 +601,11 @@ function setupLights() {
 }
 
 function createGlobeSphere() {
-  const geometry = new THREE.SphereGeometry(CONFIG.globe.radius - 0.03, CONFIG.globe.segments, CONFIG.globe.segments);
+  const geometry = new THREE.SphereGeometry(
+    CONFIG.globe.radius - 0.03,
+    CONFIG.globe.segments,
+    CONFIG.globe.segments,
+  );
 
   const material = new THREE.MeshPhongMaterial({
     color: CONFIG.colors.globeDark,
@@ -593,6 +616,9 @@ function createGlobeSphere() {
   const sphere = new THREE.Mesh(geometry, material);
   sphere.renderOrder = 0;
   globeGroup.add(sphere);
+
+  // сохраняем для raycast (hover по странам)
+  globeSphereMesh = sphere;
 
   createAtmosphereGlow();
 }
@@ -1004,13 +1030,253 @@ function indexCountryCentroids(labels) {
 function getCountryCentroid(countryName) {
   const key = _canonCountryKey(countryName);
   return _countryCentroidsByNorm.get(key) || null;
+
+
+// === Countries hover (real polygons) ===
+// Загружаем страны (границы) из world-atlas и делаем point-in-polygon по lat/lon.
+// Это позволяет показывать число пользователей при наведении *на страну*, а не на маркер.
+
+async function loadCountriesIndex() {
+  if (countriesIndex) return countriesIndex;
+  if (countriesIndexPromise) return countriesIndexPromise;
+
+  countriesIndexPromise = (async () => {
+    try {
+      // topojson уже загружен в init(), но на всякий случай:
+      if (!topojson) topojson = await loadTopoJson();
+
+      // world-atlas: геометрия + табличка id->name
+      // сначала пробуем локально (если положишь файлы в /public/data), затем CDN
+      const tryFetch = async (url) => {
+        try {
+          const r = await fetch(url);
+          if (r && r.ok) return r;
+        } catch {}
+        return null;
+      };
+
+      const topoRes =
+        (await tryFetch('./data/countries-110m.json')) ||
+        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json'));
+      const tsvRes =
+        (await tryFetch('./data/countries-110m.tsv')) ||
+        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.tsv'));
+
+      if (!topoRes) throw new Error('countries-110m.json fetch failed');
+      if (!tsvRes) throw new Error('countries-110m.tsv fetch failed');
+const topoData = await topoRes.json();
+      const tsvText = await tsvRes.text();
+
+      const idToName = parseIdNameTSV(tsvText);
+      const features = topojson.feature(topoData, topoData.objects.countries)?.features || [];
+
+      const index = [];
+      for (const f of features) {
+        const id = String(f?.id ?? f?.properties?.id ?? '');
+        const name = idToName.get(id) || f?.properties?.name || '';
+        const key = _canonCountryKey(name);
+
+        if (!name || !key) continue;
+
+        const bbox = computeGeomBBox(f.geometry);
+        index.push({ id, name, key, bbox, geometry: f.geometry });
+      }
+
+      countriesIndex = index;
+      return index;
+    } catch (e) {
+      console.warn('Countries hover index failed:', e);
+      countriesIndex = [];
+      return countriesIndex;
+    }
+  })();
+
+  return countriesIndexPromise;
+}
+
+function parseIdNameTSV(tsvText) {
+  const map = new Map();
+  const lines = String(tsvText || '').trim().split('\n').filter(Boolean);
+  if (lines.length < 2) return map;
+
+  const head = lines[0].split('\t');
+  const idxId = Math.max(0, head.indexOf('id'));
+  const idxName = head.indexOf('name') >= 0 ? head.indexOf('name') : 1;
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split('\t');
+    const id = String(cols[idxId] || '').trim();
+    const name = String(cols[idxName] || '').trim();
+    if (id && name) map.set(id, name);
+  }
+  return map;
+}
+
+function computeGeomBBox(geom) {
+  let minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
+  let minLon360 = 360, maxLon360 = 0;
+
+  const push = (lon, lat) => {
+    if (typeof lon !== 'number' || typeof lat !== 'number') return;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lon < minLon) minLon = lon;
+    if (lon > maxLon) maxLon = lon;
+
+    const lon360 = ((lon % 360) + 360) % 360;
+    if (lon360 < minLon360) minLon360 = lon360;
+    if (lon360 > maxLon360) maxLon360 = lon360;
+  };
+
+  walkGeomCoords(geom, push);
+
+  const span180 = maxLon - minLon;
+  const span360 = maxLon360 - minLon360;
+
+  const mode = span360 < span180 ? '360' : '180';
+
+  return {
+    minLat,
+    maxLat,
+    mode,
+    minLon: mode === '360' ? minLon360 : minLon,
+    maxLon: mode === '360' ? maxLon360 : maxLon,
+  };
+}
+
+function walkGeomCoords(geom, fn) {
+  if (!geom) return;
+  const t = geom.type;
+  const c = geom.coordinates;
+
+  if (t === 'Polygon') {
+    for (const ring of c || []) for (const p of ring || []) fn(p[0], p[1]);
+  } else if (t === 'MultiPolygon') {
+    for (const poly of c || []) for (const ring of poly || []) for (const p of ring || []) fn(p[0], p[1]);
+  } else if (t === 'MultiLineString') {
+    for (const line of c || []) for (const p of line || []) fn(p[0], p[1]);
+  } else if (t === 'LineString') {
+    for (const p of c || []) fn(p[0], p[1]);
+  }
+}
+
+function vector3ToLatLon(worldPoint) {
+  // инверсия latLonToVector3()
+  const v = worldPoint.clone().normalize();
+  const phi = Math.acos(Math.max(-1, Math.min(1, v.y))); // 0..pi
+  const lat = 90 - (phi * 180) / Math.PI;
+
+  const theta = Math.atan2(v.z, -v.x); // 0..2pi-ish
+  let lon = (theta * 180) / Math.PI - 180;
+  // normalize [-180..180]
+  if (lon > 180) lon -= 360;
+  if (lon < -180) lon += 360;
+
+  return { lat, lon };
+}
+
+function findCountryAt(lat, lon) {
+  if (!countriesIndex || !countriesIndex.length) return null;
+
+  const lon360 = ((lon % 360) + 360) % 360;
+
+  for (const c of countriesIndex) {
+    const b = c.bbox;
+    if (!b) continue;
+
+    if (lat < b.minLat || lat > b.maxLat) continue;
+
+    if (b.mode === '360') {
+      if (lon360 < b.minLon || lon360 > b.maxLon) continue;
+    } else {
+      if (lon < b.minLon || lon > b.maxLon) continue;
+    }
+
+    if (pointInGeometry(lon, lat, c.geometry)) return c;
+  }
+
+  return null;
+}
+
+function pointInGeometry(lon, lat, geom) {
+  if (!geom) return false;
+
+  if (geom.type === 'Polygon') {
+    return pointInPolygon(lon, lat, geom.coordinates);
+  }
+  if (geom.type === 'MultiPolygon') {
+    for (const poly of geom.coordinates || []) {
+      if (pointInPolygon(lon, lat, poly)) return true;
+    }
+  }
+  return false;
+}
+
+function pointInPolygon(lon, lat, polyCoords) {
+  if (!polyCoords || !polyCoords.length) return false;
+
+  // 0 - outer ring, others - holes
+  if (!pointInRing(lon, lat, polyCoords[0])) return false;
+
+  for (let i = 1; i < polyCoords.length; i++) {
+    if (pointInRing(lon, lat, polyCoords[i])) return false;
+  }
+  return true;
+}
+
+function adjustLonNear(lon, refLon) {
+  let x = lon;
+  while (x - refLon > 180) x -= 360;
+  while (x - refLon < -180) x += 360;
+  return x;
+}
+
+function pointInRing(lon, lat, ring) {
+  if (!ring || ring.length < 3) return false;
+
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const pi = ring[i];
+    const pj = ring[j];
+    if (!pi || !pj) continue;
+
+    const yi = pi[1];
+    const yj = pj[1];
+
+    // переносим долготы ближе к точке (защита от анти-меридиана)
+    const xi = adjustLonNear(pi[0], lon);
+    const xj = adjustLonNear(pj[0], lon);
+
+    const intersect = (yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / ((yj - yi) || 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+function updatePublicCountryCounts(items) {
+  publicCountryCounts.clear();
+  for (const i of items || []) {
+    const key = i?.key ? String(i.key) : _canonCountryKey(i?.name || '');
+    const count = Number(i?.count || 0);
+    if (key && count > 0) publicCountryCounts.set(key, count);
+  }
+}
+
 }
 
 // === Public country markers layer ===
 function setupPublicMarkersLayer() {
   if (!globeGroup) return;
 
-  // если вдруг остался от прошлого инстанса — удалим
+  // запускаем загрузку стран (границы) — нужно для hover
+  if (!countriesIndexPromise) {
+    loadCountriesIndex().catch(() => {});
+  }
+
+  // В этой версии НЕ рисуем публичные маркеры, только показываем число на hover по стране.
+  // Если вдруг осталась группа от прошлого инстанса — удалим.
   if (publicMarkersGroup) {
     try {
       globeGroup.remove(publicMarkersGroup);
@@ -1019,10 +1285,6 @@ function setupPublicMarkersLayer() {
     }
     publicMarkersGroup = null;
   }
-
-  publicMarkersGroup = new THREE.Group();
-  publicMarkersGroup.renderOrder = 4;
-  globeGroup.add(publicMarkersGroup);
 
   // подготовка hover-инфы
   publicMarkerSprites.length = 0;
@@ -1039,9 +1301,11 @@ function setupPublicMarkersLayer() {
 function renderPublicMarkersFromCache() {
   const cached = _readPublicCountryCacheAny();
   if (!cached?.items?.length) return;
-  // рисуем сразу (быстро), чтобы при возврате на вкладку точки не исчезали
-  renderPublicCountryMarkers(cached.items);
+
+  // обновляем мапу подсчётов сразу из кеша (чтобы после возврата на вкладку всё работало без перезапуска)
+  updatePublicCountryCounts(cached.items);
 }
+
 
 
 function startPublicMarkersRefresh() {
@@ -1065,7 +1329,9 @@ async function refreshPublicCountryMarkers() {
 
   const items = aggregateMarkersByCountry(markers);
   _writePublicCountryCache(items);
-  renderPublicCountryMarkers(items);
+
+  // обновляем счётчики (для hover)
+  updatePublicCountryCounts(items);
 }
 
 function aggregateMarkersByCountry(markers) {
@@ -1196,7 +1462,7 @@ function optimisticUpdatePublicCountryCounts(prevCountry, nextCountry, coords) {
   out.sort((a, b) => Number(b.count || 0) - Number(a.count || 0));
 
   _writePublicCountryCache(out);
-  renderPublicCountryMarkers(out);
+  updatePublicCountryCounts(out);
 }
 
 
@@ -1288,12 +1554,11 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
   markerGroup.add(sprite);
 
   // "хитбокс" для удобного наведения (невидимый шар)
-  const hitGeom = new THREE.SphereGeometry(0.8, 10, 10);
+  const hitGeom = new THREE.SphereGeometry(0.25, 10, 10);
   const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0, depthWrite: false });
   const hitMesh = new THREE.Mesh(hitGeom, hitMat);
   hitMesh.userData.publicCountry = { name, count, lat, lon };
   hitMesh.userData.publicDir = dir;
-  hitMesh.scale.set(3, 3, 3);
   markerGroup.add(hitMesh);
 
   // в список для raycast
@@ -1311,7 +1576,7 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
-}
+
 // --- Public markers hover tooltip (only number on hover) ---
 function ensurePublicHoverTooltip() {
   if (publicTooltipObject) return;
@@ -1387,13 +1652,19 @@ function processPublicHoverPick() {
   if (!publicLastPointerEvent) return;
   if (!publicRaycaster || !publicMouse) return;
   if (!camera || !renderer) return;
-  if (!publicMarkerSprites.length) {
+
+  publicNeedsPick = false;
+
+  // если индекс стран ещё не готов — просто скрываем
+  if (!countriesIndex || !countriesIndex.length) {
     clearPublicHoverTooltip();
-    publicNeedsPick = false;
     return;
   }
 
-  publicNeedsPick = false;
+  if (!globeSphereMesh) {
+    clearPublicHoverTooltip();
+    return;
+  }
 
   const rect = renderer.domElement.getBoundingClientRect();
   const x = ((publicLastPointerEvent.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1402,53 +1673,67 @@ function processPublicHoverPick() {
   publicMouse.set(x, y);
   publicRaycaster.setFromCamera(publicMouse, camera);
 
-  const hits = publicRaycaster.intersectObjects(publicMarkerSprites, true);
+  const hits = publicRaycaster.intersectObject(globeSphereMesh, true);
   if (!hits || !hits.length) {
     clearPublicHoverTooltip();
     return;
   }
 
-  const hit = hits[0].object;
-  const data = hit?.userData?.publicCountry;
-  if (!data) {
+  const hitPoint = hits[0].point;
+  const { lat, lon } = vector3ToLatLon(hitPoint);
+
+  const country = findCountryAt(lat, lon);
+  if (!country) {
     clearPublicHoverTooltip();
     return;
   }
 
-  showPublicHoverTooltip(hit, data);
+  const key = country.key;
+  const count = Number(publicCountryCounts.get(key) || 0);
+
+  if (!count || count <= 0) {
+    clearPublicHoverTooltip();
+    return;
+  }
+
+  showPublicHoverTooltipAt(hitPoint, { name: country.name, count });
 }
 
-function showPublicHoverTooltip(hitObj, data) {
+function showPublicHoverTooltipAt(worldPoint, data) {
   ensurePublicHoverTooltip();
-  if (!publicTooltipObject || !publicTooltipDiv) return;
+  if (!publicTooltipObject || !publicTooltipDiv || !globeGroup) return;
 
-  // если объект на обратной стороне — не показываем
-  const camDir = camera.position.clone().normalize();
-  const dir = hitObj?.userData?.publicDir;
-  if (dir && dir.dot(camDir) <= 0.05) {
-    clearPublicHoverTooltip();
-    return;
-  }
-
-  const count = Number(data.count || 0);
+  // показываем только число
+  const count = Number(data?.count || 0);
   publicTooltipDiv.textContent = count.toLocaleString();
-  publicTooltipDiv.title = String(data.name || '');
+  publicTooltipDiv.title = String(data?.name || '');
 
-  // переназначаем родителя, чтобы тултип "сидел" на нужной стране
-  const markerGroup = hitObj.parent;
-  if (!markerGroup) return;
-
-  if (publicTooltipObject.parent && publicTooltipObject.parent !== markerGroup) {
+  // добавляем тултип в globeGroup
+  if (publicTooltipObject.parent && publicTooltipObject.parent !== globeGroup) {
     try { publicTooltipObject.parent.remove(publicTooltipObject); } catch {}
   }
-  if (publicTooltipObject.parent !== markerGroup) {
-    markerGroup.add(publicTooltipObject);
+  if (publicTooltipObject.parent !== globeGroup) {
+    globeGroup.add(publicTooltipObject);
   }
 
-  publicTooltipObject.position.set(0, 0.55, 0);
-  publicTooltipObject.element.style.display = 'block';
+  // позиция: над точкой пересечения (чуть приподнимаем)
+  const local = globeGroup.worldToLocal(worldPoint.clone());
+  const dir = local.clone().normalize();
+  publicTooltipObject.position.copy(dir.multiplyScalar(CONFIG.globe.radius + 0.55));
 
-  publicHoveredSprite = hitObj;
+  publicTooltipObject.element.style.display = 'block';
+  publicHoveredSprite = null;
+}
+
+function showPublicHoverTooltip(_hitObj, data) {
+  // legacy: marker-hover mode (отключён). Оставлено, чтобы ничего не падало.
+  if (!_hitObj) return;
+  try {
+    const p = _hitObj.getWorldPosition ? _hitObj.getWorldPosition(new THREE.Vector3()) : null;
+    if (p) showPublicHoverTooltipAt(p, data);
+  } catch {
+    // ignore
+  }
 }
 
 function clearPublicHoverTooltip() {
@@ -1462,21 +1747,22 @@ function clearPublicHoverTooltip() {
 }
 
 function updatePublicMarkersVisibility(camDir) {
-  if (!publicMarkersGroup) return;
+  // Маркеры мы не рисуем, но если tooltip остался видимым,
+  // прячем его, когда точка уходит на обратную сторону.
   if (!camDir) return;
+  if (!publicTooltipObject?.parent) return;
 
-  for (const g of publicMarkersGroup.children || []) {
-    const dir = g?.userData?.publicDir;
-    if (!dir) continue;
-    g.visible = dir.dot(camDir) > 0.05;
-  }
-
-  // если ховер был на скрытом — прячем
-  if (publicHoveredSprite?.parent && !publicHoveredSprite.parent.visible) {
-    clearPublicHoverTooltip();
+  try {
+    const wp = new THREE.Vector3();
+    publicTooltipObject.getWorldPosition(wp);
+    const dir = wp.clone().normalize();
+    if (dir.dot(camDir) <= 0.05) {
+      clearPublicHoverTooltip();
+    }
+  } catch {
+    // ignore
   }
 }
-
 
 function setupLocationPanel() {
   if (!locationPanel) return;
@@ -1962,8 +2248,3 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
-
-
-
-
-
