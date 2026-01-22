@@ -702,7 +702,7 @@ async function loadAndCreateLandPoints() {
 
 async function loadCountryBorders() {
   try {
-    const response = await fetch('https://unpkg.com/world-atlas@2.0.2/labels.json');
+    const response = await fetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json');
     const topoData = await response.json();
 
     // ВАЖНО: topojson.mesh сильно быстрее, чем feature->каждая страна->линии
@@ -1078,28 +1078,61 @@ async function loadCountriesIndex() {
 
       // world-atlas: геометрия + табличка id->name
       // сначала пробуем локально (если положишь файлы в /public/data), затем CDN
-      const tryFetch = async (url) => {
+      const topoUrls = [
+        './data/countries-110m.json',
+        '/data/countries-110m.json',
+        'https://unpkg.com/world-atlas@2.0.2/countries-110m.json',
+      ];
+      const tsvUrls = [
+        './data/countries-110m.tsv',
+        '/data/countries-110m.tsv',
+        'https://unpkg.com/world-atlas@2.0.2/countries-110m.tsv',
+      ];
+
+      const looksLikeHtml = (txt) => /^\s*</.test(String(txt || ''));
+      const safeFetchText = async (url) => {
         try {
-          const r = await fetch(url);
-          if (r && r.ok) return r;
-        } catch {}
-        return null;
+          const r = await fetch(url, { cache: 'force-cache' });
+          if (!r || !r.ok) return null;
+          const txt = await r.text();
+          if (!txt || looksLikeHtml(txt)) return null; // SPA/404 часто возвращают index.html
+          return txt;
+        } catch {
+          return null;
+        }
       };
 
-      const topoRes =
-        (await tryFetch('./data/labels.json')) ||
-        (await tryFetch('/data/labels.json')) ||
-        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/labels.json'));
-      const tsvRes =
-        (await tryFetch('./data/labels.tsv')) ||
-        (await tryFetch('/data/labels.tsv')) ||
-        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/labels.tsv'));
+      const safeFetchJson = async (url) => {
+        const txt = await safeFetchText(url);
+        if (!txt) return null;
+        try {
+          return JSON.parse(txt);
+        } catch {
+          return null;
+        }
+      };
 
-      if (!topoRes) throw new Error('labels.json fetch failed');
-      if (!tsvRes) throw new Error('labels.tsv fetch failed');
+      let topoData = null;
+      for (const url of topoUrls) {
+        const data = await safeFetchJson(url);
+        if (data?.objects?.countries) {
+          topoData = data;
+          break;
+        }
+      }
 
-      const topoData = await topoRes.json();
-      const tsvText = await tsvRes.text();
+      let tsvText = null;
+      for (const url of tsvUrls) {
+        const txt = await safeFetchText(url);
+        // TSV должен содержать табы и хотя бы пару строк
+        if (txt && txt.includes('\t') && txt.split('\n').length >= 2) {
+          tsvText = txt;
+          break;
+        }
+      }
+
+      if (!topoData) throw new Error('countries-110m.json not available (invalid JSON or HTML fallback)');
+      if (!tsvText) throw new Error('countries-110m.tsv not available (invalid TSV or HTML fallback)');
 
       const idToName = parseIdNameTSV(tsvText);
       const features = topojson.feature(topoData, topoData.objects.countries)?.features || [];
@@ -2160,5 +2193,3 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
-
-
