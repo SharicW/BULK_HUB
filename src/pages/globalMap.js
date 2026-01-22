@@ -1293,6 +1293,7 @@ function addPublicCountryMarker({ name, count, lat, lon }) {
   const hitMesh = new THREE.Mesh(hitGeom, hitMat);
   hitMesh.userData.publicCountry = { name, count, lat, lon };
   hitMesh.userData.publicDir = dir;
+  hitMesh.scale.set(3, 3, 3);
   markerGroup.add(hitMesh);
 
   // в список для raycast
@@ -1961,6 +1962,7 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
 
 
