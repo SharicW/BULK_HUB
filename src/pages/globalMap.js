@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { createEl } from '../utils/dom.js';
+import { openLoginModal } from '../ui/loginModal.js';
 
 const CONFIG = {
   globe: {
@@ -43,6 +44,64 @@ const CONFIG = {
 
 const STORAGE_KEY = 'bulkhub_user_location';
 
+// === BACKEND (markers) ===
+const API_BASE =
+  window.BULK_AUTH_API_BASE ||
+  'https://bulkhubdatabase-production.up.railway.app';
+
+// ключи токена (как в loginModal.js)
+const LS_TOKEN = 'bulk_auth_token';
+const SS_TOKEN = 'bulk_auth_token_session';
+
+function getAuthToken() {
+  return localStorage.getItem(LS_TOKEN) || sessionStorage.getItem(SS_TOKEN);
+}
+
+function clearAuthToken() {
+  localStorage.removeItem(LS_TOKEN);
+  sessionStorage.removeItem(SS_TOKEN);
+}
+
+async function api(path, { method = 'GET', body, auth = true } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (auth) {
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = data?.detail || data?.error || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+async function loadMyMarkerFromBackend() {
+  // GET /markers/me -> либо null, либо { user_id, country, city, lat, lng }
+  return await api('/markers/me', { method: 'GET', auth: true });
+}
+
+async function saveMarkerToBackend({ country, city, lat, lon }) {
+  // backend ждёт lat/lng, а у тебя lon — это долгота
+  return await api('/markers', {
+    method: 'POST',
+    auth: true,
+    body: { country, city, lat, lng: lon },
+  });
+}
+
+// слушатель на успешный логин (loginModal.js кидает событие)
+let loginEventHandler = null;
+
 let topojson = null;
 let scene;
 let camera;
@@ -53,6 +112,13 @@ let globeGroup;
 let landPoints;
 let countryBorders;
 let userMarker = null;
+
+// public markers (country aggregates)
+let publicMarkersGroup = null;
+const countryLabelObjects = [];
+let publicMarkersTimer = null;
+let lastPublicMarkersFetchAt = 0;
+
 
 let isUserInteracting = false;
 let lastInteractionTime = 0;
@@ -132,6 +198,18 @@ export function destroyGlobalMap() {
     document.removeEventListener('visibilitychange', visibilityHandler);
     visibilityHandler = null;
   }
+
+  if (loginEventHandler) {
+    window.removeEventListener('bulk:login', loginEventHandler);
+    loginEventHandler = null;
+  }
+
+  if (publicMarkersTimer) {
+    clearInterval(publicMarkersTimer);
+    publicMarkersTimer = null;
+  }
+
+  clearPublicCountryMarkers();
 
   if (animationId) {
     cancelAnimationFrame(animationId);
@@ -220,8 +298,12 @@ async function init() {
   await loadAndCreateLandPoints(); // маска + равномерные точки
   await loadLabels();
 
+  setupPublicCountryMarkers();
+  await refreshPublicCountryMarkers();
+  startPublicCountryMarkersRefresh();
+
   setupLocationPanel();
-  checkSavedLocation();
+  await checkSavedLocation();
   startResizeWatcher();
   startVisibilityWatchers();
 
@@ -800,6 +882,222 @@ function createLabel(name, lat, lon, size = 1) {
   globeGroup.add(labelObject);
 }
 
+
+// ---------------- PUBLIC COUNTRY MARKERS ----------------
+
+function setupPublicCountryMarkers() {
+  if (!globeGroup) return;
+
+  if (!publicMarkersGroup) {
+    publicMarkersGroup = new THREE.Group();
+    publicMarkersGroup.renderOrder = 3;
+    globeGroup.add(publicMarkersGroup);
+  }
+}
+
+function startPublicCountryMarkersRefresh() {
+  // обновляем раз в минуту (не спамим запросами)
+  if (publicMarkersTimer) return;
+
+  publicMarkersTimer = setInterval(() => {
+    if (!isActive) return;
+    if (isPaused) return;
+    refreshPublicCountryMarkers().catch(() => {});
+  }, 60000);
+}
+
+async function refreshPublicCountryMarkers() {
+  const now = Date.now();
+  // throttling: не чаще чем раз в 10 сек (на случай нескольких вызовов подряд)
+  if (now - lastPublicMarkersFetchAt < 10000) return;
+  lastPublicMarkersFetchAt = now;
+
+  let rows = [];
+  try {
+    rows = await api('/markers?limit=2000', { method: 'GET', auth: false });
+    if (!Array.isArray(rows)) rows = [];
+  } catch (e) {
+    // если backend недоступен — просто не рисуем
+    return;
+  }
+
+  const aggregates = buildCountryAggregates(rows);
+  renderPublicCountryMarkers(aggregates);
+}
+
+function clearPublicCountryMarkers() {
+  // remove CSS labels and objects
+  for (let i = 0; i < countryLabelObjects.length; i++) {
+    const obj = countryLabelObjects[i];
+    if (obj?.userData?.element?.parentNode) obj.userData.element.parentNode.removeChild(obj.userData.element);
+  }
+  countryLabelObjects.length = 0;
+
+  if (publicMarkersGroup) {
+    publicMarkersGroup.traverse((child) => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) {
+        if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+        else child.material.dispose();
+      }
+      if (child.element && child.element.parentNode) {
+        child.element.parentNode.removeChild(child.element);
+      }
+    });
+
+    while (publicMarkersGroup.children.length) {
+      publicMarkersGroup.remove(publicMarkersGroup.children[0]);
+    }
+  }
+}
+
+function buildCountryAggregates(rows) {
+  const by = new Map();
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || {};
+    const countryRaw = (r.country || '').toString().trim();
+    const lat = typeof r.lat === 'number' ? r.lat : null;
+    const lng = typeof r.lng === 'number' ? r.lng : null;
+    if (!countryRaw || lat === null || lng === null || Number.isNaN(lat) || Number.isNaN(lng)) continue;
+
+    const key = countryRaw.toLowerCase();
+    let agg = by.get(key);
+    if (!agg) {
+      agg = { country: countryRaw, count: 0, sx: 0, sy: 0, sz: 0 };
+      by.set(key, agg);
+    }
+
+    agg.count += 1;
+
+    const latRad = (lat * Math.PI) / 180;
+    const lonRad = (lng * Math.PI) / 180;
+    const cosLat = Math.cos(latRad);
+
+    // latLonToVector3() mapping (unit radius):
+    // x = cos(lat)*cos(lon)
+    // y = sin(lat)
+    // z = -cos(lat)*sin(lon)
+    agg.sx += cosLat * Math.cos(lonRad);
+    agg.sy += Math.sin(latRad);
+    agg.sz += -cosLat * Math.sin(lonRad);
+  }
+
+  const out = [];
+  for (const agg of by.values()) {
+    const n = Math.max(1, agg.count);
+
+    let x = agg.sx / n;
+    let y = agg.sy / n;
+    let z = agg.sz / n;
+
+    const len = Math.sqrt(x * x + y * y + z * z) || 1;
+    x /= len;
+    y /= len;
+    z /= len;
+
+    const lat = Math.asin(y) * (180 / Math.PI);
+    const lon = Math.atan2(-z, x) * (180 / Math.PI);
+
+    const size = Math.min(3.2, 1 + Math.log10(n + 1)); // для видимости по zoom
+    out.push({ country: agg.country, count: n, lat, lon, size });
+  }
+
+  out.sort((a, b) => b.count - a.count);
+  return out;
+}
+
+function renderPublicCountryMarkers(aggregates) {
+  if (!publicMarkersGroup) return;
+
+  clearPublicCountryMarkers();
+
+  const r = CONFIG.globe.radius + 0.06;
+  const base = 0.05;
+
+  for (let i = 0; i < aggregates.length; i++) {
+    const c = aggregates[i];
+    const scale = Math.min(2.6, 1 + Math.log(c.count + 1) / 3);
+
+    const g = new THREE.Group();
+
+    const pointGeometry = new THREE.SphereGeometry(base * scale, 12, 12);
+    const pointMaterial = new THREE.MeshBasicMaterial({
+      color: 0x39a0ff,
+      transparent: true,
+      opacity: 0.9,
+      depthTest: true,
+      depthWrite: true,
+    });
+    const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+    g.add(pointMesh);
+
+    const ringGeometry = new THREE.RingGeometry(base * 1.3 * scale, base * 1.9 * scale, 28);
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: 0x39a0ff,
+      transparent: true,
+      opacity: 0.35,
+      side: THREE.DoubleSide,
+      depthTest: true,
+      depthWrite: false,
+    });
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    g.add(ringMesh);
+
+    const pos = latLonToVector3(c.lat, c.lon, r);
+    g.position.copy(pos);
+    g.lookAt(new THREE.Vector3(0, 0, 0));
+    g.rotateX(Math.PI / 2);
+
+    publicMarkersGroup.add(g);
+
+    // CSS label (country + count)
+    const labelDiv = document.createElement('div');
+    labelDiv.className = 'country-count-label';
+    labelDiv.style.padding = '6px 10px';
+    labelDiv.style.borderRadius = '12px';
+    labelDiv.style.background = 'rgba(15, 15, 18, 0.92)';
+    labelDiv.style.border = '1px solid rgba(255, 255, 255, 0.10)';
+    labelDiv.style.boxShadow = '0 10px 26px rgba(0, 0, 0, 0.35)';
+    labelDiv.style.color = '#fff';
+    labelDiv.style.whiteSpace = 'nowrap';
+    labelDiv.style.transform = 'translate(-50%, -100%)';
+    labelDiv.style.fontSize = '12px';
+    labelDiv.style.lineHeight = '1.15';
+    labelDiv.style.pointerEvents = 'none';
+
+    const countStr = formatCount(c.count);
+    labelDiv.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 2px;">${escapeHtml(c.country)}</div>
+      <div style="opacity: 0.85;">Active Users: ${countStr}</div>
+    `;
+
+    const labelObj = new CSS2DObject(labelDiv);
+    labelObj.position.set(0, 0.35 * scale, 0);
+    labelObj.userData = { lat: c.lat, lon: c.lon, element: labelDiv, size: c.size, kind: 'country' };
+
+    g.add(labelObj);
+    countryLabelObjects.push(labelObj);
+  }
+}
+
+function formatCount(n) {
+  const s = String(n || 0);
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+// --------------------------------------------------------
+
+
 function setupLocationPanel() {
   if (!locationPanel) return;
 
@@ -815,10 +1113,27 @@ function setupLocationPanel() {
   if (!locationForm) return;
 
   showLocationForm();
+  applyAuthUiState();
+
+  // если пользователь залогинился — включаем UI
+  loginEventHandler = () => {
+    applyAuthUiState();
+    checkSavedLocation().catch(() => {});
+  };
+  window.addEventListener('bulk:login', loginEventHandler);
 
   handleLocationSubmit = async (e) => {
     e.preventDefault();
     e.stopPropagation();
+
+    // ✅ БЛОК: без токена — не даём ставить метку вообще
+    const token = getAuthToken();
+    if (!token) {
+      showError('Log in required to show your location on the globe.');
+      openLoginModal();
+      return;
+    }
+
     const city = cityInput.value.trim();
     const country = countryInput.value.trim();
     if (!city || !country) return;
@@ -828,16 +1143,42 @@ function setupLocationPanel() {
 
     try {
       const coords = await geocodeLocation(city, country);
-      if (coords) {
-        const payload = { city, country, ...coords };
-        currentLocation = payload;
-        saveUserLocation(payload);
-        addUserMarker(coords.lat, coords.lon, city, country);
-        rotateToLocation(coords.lat, coords.lon);
-        showLocationSummary(city, country);
-      } else {
+      if (!coords) {
         showError('Location not found. Please check the city and country names.');
+        return;
       }
+
+      // ✅ сначала сохраняем в БД
+      try {
+        await saveMarkerToBackend({
+          city,
+          country,
+          lat: coords.lat,
+          lon: coords.lon,
+        });
+      } catch (err) {
+        // токен мог протухнуть
+        if (err?.status === 401) {
+          clearAuthToken();
+          applyAuthUiState();
+          showError('Session expired. Please log in again.');
+          openLoginModal();
+          return;
+        }
+        showError('Failed to save your marker. Please try again.');
+        return;
+      }
+
+      // ✅ только после успешного сохранения — показываем на глобусе
+      const payload = { city, country, ...coords };
+      currentLocation = payload;
+
+      // кеш на клиенте (только залогиненным)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+
+      addUserMarker(coords.lat, coords.lon, city, country);
+      rotateToLocation(coords.lat, coords.lon);
+      showLocationSummary(city, country);
     } catch (error) {
       showError('Failed to find location. Please try again.');
     } finally {
@@ -847,6 +1188,13 @@ function setupLocationPanel() {
   locationForm.addEventListener('submit', handleLocationSubmit);
 
   handleChangeLocation = () => {
+    // без токена — не даём
+    if (!getAuthToken()) {
+      showError('Log in required to change your location.');
+      openLoginModal();
+      return;
+    }
+
     if (currentLocation) {
       cityInput.value = currentLocation.city || '';
       countryInput.value = currentLocation.country || '';
@@ -854,6 +1202,43 @@ function setupLocationPanel() {
     showLocationForm();
   };
   changeLocationBtn.addEventListener('click', handleChangeLocation);
+}
+
+function applyAuthUiState() {
+  const token = getAuthToken();
+
+  // если нет токена — убираем любое сохранённое местоположение (чтобы skip не обходил)
+  if (!token) {
+    localStorage.removeItem(STORAGE_KEY);
+    currentLocation = null;
+
+    // убираем маркер с глобуса, если был
+    if (userMarker) {
+      userMarker.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+          else child.material.dispose();
+        }
+        if (child.element && child.element.parentNode) {
+          child.element.parentNode.removeChild(child.element);
+        }
+      });
+      globeGroup?.remove(userMarker);
+      userMarker = null;
+    }
+
+    showLocationForm();
+    hideError();
+
+    // меняем текст кнопки
+    const btnText = submitBtn?.querySelector('.btn-text');
+    if (btnText) btnText.textContent = 'Log in to show on Globe';
+    return;
+  }
+
+  const btnText = submitBtn?.querySelector('.btn-text');
+  if (btnText) btnText.textContent = 'Show on Globe';
 }
 
 function showLocationForm() {
@@ -895,15 +1280,47 @@ function hideError() {
   errorMsg.classList.add('hidden');
 }
 
-function checkSavedLocation() {
+async function checkSavedLocation() {
+  const token = getAuthToken();
+  if (!token) {
+    // без токена ничего не показываем
+    return;
+  }
+
+  // 1) пробуем взять из БД
+  try {
+    const m = await loadMyMarkerFromBackend();
+    if (m && m.city && m.country && typeof m.lat === 'number' && typeof m.lng === 'number') {
+      currentLocation = { city: m.city, country: m.country, lat: m.lat, lon: m.lng };
+
+      // кеш на клиенте (не обязательно)
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(currentLocation));
+
+      addUserMarker(m.lat, m.lng, m.city, m.country);
+      showLocationSummary(m.city, m.country);
+      setTimeout(() => rotateToLocation(m.lat, m.lng), 500);
+      return;
+    }
+  } catch (err) {
+    if (err?.status === 401) {
+      clearAuthToken();
+      applyAuthUiState();
+      return;
+    }
+    // если БД недоступна — упадём на кеш ниже
+  }
+
+  // 2) fallback на локальный кеш (только если залогинен)
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     try {
       const { city, country, lat, lon } = JSON.parse(saved);
-      currentLocation = { city, country, lat, lon };
-      addUserMarker(lat, lon, city, country);
-      showLocationSummary(city, country);
-      setTimeout(() => rotateToLocation(lat, lon), 500);
+      if (city && country && typeof lat === 'number' && typeof lon === 'number') {
+        currentLocation = { city, country, lat, lon };
+        addUserMarker(lat, lon, city, country);
+        showLocationSummary(city, country);
+        setTimeout(() => rotateToLocation(lat, lon), 500);
+      }
     } catch (e) {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -1065,6 +1482,7 @@ function updateLabelVisibility() {
   const cameraDistance = cameraPosition.length();
   const minDist = CONFIG.camera.minDistance;
   const maxDist = CONFIG.camera.maxDistance;
+
   const zoomFactor = (cameraDistance - minDist) / (maxDist - minDist);
   const zoomCurve = Math.pow(Math.max(0, Math.min(1, zoomFactor)), 0.7);
   const minSizeThreshold = 0.55 + zoomCurve * 0.75;
@@ -1072,11 +1490,20 @@ function updateLabelVisibility() {
   // камера направление
   const camDir = cameraPosition.clone().normalize();
 
-  for (let i = 0; i < labelObjects.length; i++) {
-    const labelObj = labelObjects[i];
+  applyLabelVisibilityToList(labelObjects, minSizeThreshold, camDir);
+  applyLabelVisibilityToList(countryLabelObjects, minSizeThreshold, camDir);
+}
+
+function applyLabelVisibilityToList(list, minSizeThreshold, camDir) {
+  for (let i = 0; i < list.length; i++) {
+    const labelObj = list[i];
     const labelSize = labelObj.userData.size || 1;
 
-    const showByZoom = labelSize >= minSizeThreshold;
+    // country labels показываем чуть охотнее
+    const isCountry = labelObj.userData.kind === 'country';
+    const threshold = isCountry ? (minSizeThreshold * 0.8) : minSizeThreshold;
+
+    const showByZoom = labelSize >= threshold;
     if (!showByZoom) {
       if (labelObj.userData.element) labelObj.userData.element.style.opacity = '0';
       continue;
@@ -1145,4 +1572,3 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
-
