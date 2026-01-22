@@ -1177,6 +1177,66 @@ body,
   white-space: nowrap;
 }
 
+
+/* Public country hover tooltip (globe hover members count) */
+.public-country-tooltip {
+  pointer-events: none;
+  position: absolute;
+  will-change: transform, opacity;
+  transition: opacity 0.12s linear;
+  z-index: 9999;
+}
+
+.public-country-tooltip__bubble {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(20, 19, 16, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transform: translateY(-12px);
+}
+
+.public-country-tooltip__bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid rgba(20, 19, 16, 0.92);
+}
+
+.public-country-tooltip__name {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+.public-country-tooltip__count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.public-country-tooltip__count::before {
+  content: 'Members: ';
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+}
+
 /* Responsive */
 @media (max-width: 1080px) {
   #sidebar {
