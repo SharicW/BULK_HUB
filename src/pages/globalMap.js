@@ -1651,8 +1651,11 @@ function ensurePublicHoverTooltip() {
   wrap.style.position = 'fixed';
   wrap.style.left = '0px';
   wrap.style.top = '0px';
-  // центр тултипа в центре курсора
-  wrap.style.transform = 'translate(-50%, -50%)';
+  // Точка привязки — кончик курсора.
+  // Tooltip рисуем НАД курсором, а "стрелочка" у bubble указывает точно в точку курсора.
+  // (см. CSS: .country-hover-tooltip::after)
+  // 9px ≈ геометрическая высота "стрелочки" (12px ромбик под углом 45°)
+  wrap.style.transform = 'translate(-50%, calc(-100% - 9px))';
   wrap.style.zIndex = '9999';
   wrap.style.display = 'none';
   wrap.style.transition = 'none';
