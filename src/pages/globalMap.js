@@ -196,7 +196,6 @@ let globeSphereMesh = null; // for raycasting hover
 
 // --- Countries (polygons) index for hover ---
 let countriesIndex = null; // [{ name, key, bbox, geometry }]
-countriesIndexPromise = null;
 let countriesIndexPromise = null;
 
 // --- Public counts (countryKey -> count) ---
@@ -2314,4 +2313,5 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
