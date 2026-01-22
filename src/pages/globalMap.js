@@ -155,15 +155,35 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  const data = await res.json().catch(() => ({}));
+  const txt = await res.text();
+  const looksLikeHtml = /^\s*</.test(txt);
+
+  let data = null;
+  if (txt && !looksLikeHtml) {
+    try {
+      data = JSON.parse(txt);
+    } catch {
+      data = null;
+    }
+  }
+
   if (!res.ok) {
-    const msg = data?.detail || data?.error || `HTTP ${res.status}`;
+    const msg = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
     const err = new Error(msg);
     err.status = res.status;
     throw err;
   }
+
+  // Если сервер вернул не JSON (например, HTML), не считаем это успешным ответом
+  if (data === null) {
+    const err = new Error('API returned non-JSON response');
+    err.status = res.status;
+    throw err;
+  }
+
   return data;
 }
+
 
 async function loadMyMarkerFromBackend() {
   // GET /markers/me -> либо null, либо { user_id, country, city, lat, lng }
@@ -1416,14 +1436,29 @@ async function refreshPublicCountryMarkers() {
       ? res.items
       : Array.isArray(res?.markers)
         ? res.markers
-        : [];
+        : null;
+
+  // если формат не распознан — не затираем кеш
+  if (!markers) return;
+
+  // валидный пустой ответ — очищаем кеш
+  if (markers.length === 0) {
+    _writePublicCountryCache([]);
+    updatePublicCountryCounts([]);
+    return;
+  }
 
   const items = aggregateMarkersByCountry(markers);
+
+  // если агрегация дала пусто при непустых маркерах — не затираем кеш
+  if (!items.length) return;
+
   _writePublicCountryCache(items);
 
   // обновляем счётчики (для hover)
   updatePublicCountryCounts(items);
 }
+
 
 function aggregateMarkersByCountry(markers) {
   const by = new Map(); // key -> { key, name, count, latSum, lonSum, n, fallbackLat, fallbackLon }
