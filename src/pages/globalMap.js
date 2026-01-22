@@ -1087,16 +1087,16 @@ async function loadCountriesIndex() {
       };
 
       const topoRes =
-        (await tryFetch('./data/countries-110m.json')) ||
-        (await tryFetch('/data/countries-110m.json')) ||
-        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json'));
+        (await tryFetch('./data/labels.json')) ||
+        (await tryFetch('/data/labels.json')) ||
+        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/labels.json'));
       const tsvRes =
-        (await tryFetch('./data/countries-110m.tsv')) ||
-        (await tryFetch('/data/countries-110m.tsv')) ||
-        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.tsv'));
+        (await tryFetch('./data/labels.tsv')) ||
+        (await tryFetch('/data/labels.tsv')) ||
+        (await tryFetch('https://unpkg.com/world-atlas@2.0.2/labels.tsv'));
 
-      if (!topoRes) throw new Error('countries-110m.json fetch failed');
-      if (!tsvRes) throw new Error('countries-110m.tsv fetch failed');
+      if (!topoRes) throw new Error('labels.json fetch failed');
+      if (!tsvRes) throw new Error('labels.tsv fetch failed');
 
       const topoData = await topoRes.json();
       const tsvText = await tsvRes.text();
@@ -2160,3 +2160,4 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
