@@ -79,8 +79,9 @@ export async function getXPosts(username, limit = 30, offset = 0) {
 }
 
 export async function getXUserTotals(username) {
-  return request(`/x/user/${encodeURIComponent(username)}/totals`);
+  return request(`/x/totals/${encodeURIComponent(username)}`);
 }
+
 
 
 
