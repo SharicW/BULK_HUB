@@ -517,9 +517,9 @@ function buildLayout() {
   const header = createEl('div', { className: 'page-header' });
   header.innerHTML = `
     <div>
-      <p class="eyebrow">Global</p>
+      <p class="eyebrow">Map</p>
       <h1>Global map</h1>
-      <p class="muted">Explore ports and set your own position</p>
+      <p class="muted">Set your own location and see the location of others</p>
     </div>
   `;
 
@@ -2403,4 +2403,5 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
