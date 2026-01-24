@@ -2,12 +2,10 @@ import { createEl } from '../utils/dom.js';
 
 const PASSWORD_MIN_LENGTH = 8;
 
-// === BACKEND (auth) ===
 const API_BASE =
   window.BULK_AUTH_API_BASE ||
   'https://bulkhubdatabase-production.up.railway.app';
 
-// ключи токена (как в loginModal.js / globalMap.js)
 const LS_TOKEN = 'bulk_auth_token';
 const SS_TOKEN = 'bulk_auth_token_session';
 
@@ -52,7 +50,6 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
     throw err;
   }
 
-  // если сервер вернул не JSON (например HTML), не считаем это успешным ответом
   if (data === null) {
     const err = new Error('API returned non-JSON response');
     err.status = res.status;
@@ -63,11 +60,9 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
 }
 
 async function logout() {
-  // logout на бэке опционален, но если он есть — вызовем
   try {
     await api('/auth/logout', { method: 'POST', auth: true });
   } catch {
-    // ignore
   }
   clearAuthToken();
   window.dispatchEvent(new CustomEvent('bulk:logout'));
@@ -227,7 +222,6 @@ export function renderProfile(target) {
       if (disposed) return;
       passwordForm.reset();
 
-      // после смены пароля — разлогиниваем, чтобы токен не продолжал жить
       await logout();
     } catch (e) {
       if (disposed) return;
@@ -260,4 +254,3 @@ export function renderProfile(target) {
     logoutBtn.removeEventListener('click', handleLogoutClick);
   };
 }
-
