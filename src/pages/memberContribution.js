@@ -1,5 +1,5 @@
 import { createEl } from '../utils/dom.js';
-import { getXPosts } from '../api.js';
+import { getXPosts, getXUserTotals } from '../api.js';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -183,6 +183,11 @@ export function renderMemberContribution(target) {
   let loading = false;
   let reachedEnd = false;
 
+  const totalsCache = new Map();
+
+  const nf = new Intl.NumberFormat('en-US');
+  const fmt = (n) => nf.format(Number(n || 0));
+
   function normalizeUsername(v) {
     let u = String(v || '').trim();
     if (u.startsWith('@')) u = u.slice(1);
@@ -191,6 +196,52 @@ export function renderMemberContribution(target) {
 
   function setStatus(text) {
     statusEl.textContent = text || '';
+  }
+
+  function renderResultLine(username, totals = null, totalsNote = '') {
+    const base = `<span class="muted">Showing posts for <strong>@${username}</strong>`;
+    if (!totals) {
+      resultEl.innerHTML = `${base}${totalsNote ? ` • ${totalsNote}` : ''}</span>`;
+      return;
+    }
+
+    const html = `
+      ${base}
+      • Posts <strong>${fmt(totals.posts)}</strong>
+      • 👁 <strong>${fmt(totals.views)}</strong>
+      • ❤ <strong>${fmt(totals.likes)}</strong>
+      • ↻ <strong>${fmt(totals.retweets)}</strong>
+      • 💬 <strong>${fmt(totals.replies)}</strong>
+      • 👥 <strong>${fmt(totals.followers)}</strong>
+      </span>
+    `;
+    resultEl.innerHTML = html;
+  }
+
+  async function loadTotals(username) {
+    if (!username) return;
+
+    if (totalsCache.has(username)) {
+      renderResultLine(username, totalsCache.get(username));
+      return;
+    }
+
+    renderResultLine(username, null, 'loading totals…');
+
+    try {
+      const totals = await getXUserTotals(username);
+      if (!mounted) return;
+      if (username !== currentUser) return;
+
+      totalsCache.set(username, totals);
+      renderResultLine(username, totals);
+    } catch (e) {
+      if (!mounted) return;
+      if (username !== currentUser) return;
+
+      renderResultLine(username, null, 'totals unavailable');
+      console.error('Totals API error:', e);
+    }
   }
 
   async function loadPosts({ reset = false } = {}) {
@@ -209,19 +260,21 @@ export function renderMemberContribution(target) {
         loadMoreBtn.style.display = 'none';
       }
 
+      renderResultLine(currentUser, totalsCache.get(currentUser) || null);
+
       const posts = await getXPosts(currentUser, limit, offset);
       if (!mounted) return;
 
       const arr = Array.isArray(posts) ? posts : [];
       if (arr.length === 0 && offset === 0) {
-        resultEl.innerHTML = `<span class="muted">No posts found for @${currentUser} in this community.</span>`;
+        resultEl.innerHTML = `<span class="muted">No posts found for <strong>@${currentUser}</strong> in this community.</span>`;
         setStatus('');
         loadMoreBtn.style.display = 'none';
         reachedEnd = true;
+
+        loadTotals(currentUser);
         return;
       }
-
-      resultEl.innerHTML = `<span class="muted">Showing posts for <strong>@${currentUser}</strong></span>`;
 
       for (const p of arr) {
         gridEl.appendChild(createPostCard(p));
@@ -232,11 +285,13 @@ export function renderMemberContribution(target) {
       if (arr.length < limit) {
         reachedEnd = true;
         loadMoreBtn.style.display = 'none';
-        setStatus('That’s all posts ✅');
+        setStatus('That’s all posts');
       } else {
         loadMoreBtn.style.display = 'inline-flex';
         setStatus('');
       }
+
+      loadTotals(currentUser);
     } catch (e) {
       console.error(e);
       if (!mounted) return;
@@ -277,15 +332,17 @@ export function renderMemberContribution(target) {
 
   io.observe(sentinel);
 
+  const handleLoadMore = () => loadPosts();
+
   searchBtn.addEventListener('click', handlePostsSearch);
   searchInput.addEventListener('keydown', onKeyDown);
-  loadMoreBtn.addEventListener('click', () => loadPosts());
+  loadMoreBtn.addEventListener('click', handleLoadMore);
 
   return () => {
     mounted = false;
     io.disconnect();
     searchBtn.removeEventListener('click', handlePostsSearch);
     searchInput.removeEventListener('keydown', onKeyDown);
-    loadMoreBtn.removeEventListener('click', () => loadPosts());
+    loadMoreBtn.removeEventListener('click', handleLoadMore);
   };
 }
