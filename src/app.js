@@ -21,7 +21,6 @@ const mainOutlet = document.getElementById('page-container');
 const sidebarEl = document.getElementById('sidebar');
 
 function init() {
-  // логин-модалка теперь полностью управляется src/ui/loginModal.js
   initLoginModal();
 
   sidebarApi = renderSidebar(sidebarEl, { onNavigate: handleRouteChange });
@@ -58,3 +57,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
