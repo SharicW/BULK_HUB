@@ -1,4 +1,3 @@
-// src/pages/stakeInformation.js
 import { createEl } from "../utils/dom.js";
 import {
   getSanctumLatest,
@@ -35,14 +34,9 @@ function looksLikeRelativeTime(s) {
 function looksLikeSignature(s) {
   if (!s) return false;
   const t = String(s).trim();
-  // rough base58-ish without spaces
   return t.length >= 25 && !t.includes(" ") && /^[1-9A-HJ-NP-Za-km-z]+$/.test(t);
 }
 
-/**
- * Fallback нормализация на случай, если в БД вдруг снова прилетит "съехавшая" строка.
- * Сейчас у тебя таблица уже норм — так что это просто страховка.
- */
 function normalizeTx(tx) {
   const out = {
     id: tx?.id ?? null,
@@ -57,7 +51,6 @@ function normalizeTx(tx) {
     value: tx?.value,
   };
 
-  // Если time выглядит как signature, а action как "xx mins ago" — это съезд
   if (looksLikeSignature(out.time) && looksLikeRelativeTime(out.action)) {
     return {
       ...out,
@@ -71,21 +64,12 @@ function normalizeTx(tx) {
   return out;
 }
 
-/**
- * Возвращает epoch ms:
- * 1) event_ts (лучший вариант)
- * 2) относительное время "5 mins ago"
- * 3) Date.parse(time)
- * 4) 0
- */
 function timeToEpochMs(tx) {
-  // 1) event_ts
   if (tx && tx.event_ts) {
     const p = Date.parse(tx.event_ts);
     if (!Number.isNaN(p)) return p;
   }
 
-  // 2) fallback по строке time
   const timeText = tx?.time;
   if (!timeText) return 0;
 
@@ -120,12 +104,6 @@ function timeToEpochMs(tx) {
   return 0;
 }
 
-/**
- * Сортировка: newest -> oldest
- * 1) event_ts epoch desc
- * 2) id desc
- * 3) signature (стабильный tie-breaker)
- */
 function sortTransactionsNewestFirst(txs) {
   return [...(txs || [])].sort((a, b) => {
     const na = normalizeTx(a);
@@ -264,7 +242,6 @@ export function renderStakeInformation(target) {
   async function loadAll() {
     setError("");
 
-    // 1) Sanctum metrics
     try {
       const s = await getSanctumLatest();
       metricEls.total_staked.textContent = safeText(s.total_staked);
@@ -277,7 +254,6 @@ export function renderStakeInformation(target) {
       setError(`Sanctum error: ${e.message}`);
     }
 
-    // 2) Solscan tx list
     try {
       const txsRaw = await getSolscanLatest(10);
       const list = Array.isArray(txsRaw) ? txsRaw : [];
@@ -317,4 +293,3 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
-
