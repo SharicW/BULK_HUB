@@ -98,7 +98,7 @@
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 15px;
 }
-/* Core theme */
+
 :root {
   --color-bg: #1B1A17;
   --color-bg-alt: #1B1A17;
@@ -154,7 +154,6 @@ a {
   display: none !important;
 }
 
-/* Layout */
 #app {
   display: flex;
   height: 100vh;
@@ -755,7 +754,6 @@ a {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* Map panel */
 .map-stage {
   flex: 1;
   min-height: 620px;
@@ -845,7 +843,6 @@ a {
   margin-bottom: 0;
 }
 
-/* Modal */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1117,7 +1114,6 @@ body,
   text-align: center;
 }
 
-/* Labels */
 .globe-label {
   display: flex;
   align-items: center;
@@ -1177,7 +1173,6 @@ body,
   white-space: nowrap;
 }
 
-/* Responsive */
 @media (max-width: 1080px) {
   #sidebar {
     width: var(--sidebar-width-narrow);
@@ -1218,7 +1213,6 @@ body,
   }
 }
 
-/* --- Member Contributions: X posts grid --- */
 .x-posts-grid{
   margin-top: 16px;
   display: grid;
@@ -1314,10 +1308,6 @@ body,
   align-items:flex-start;
 }
 
-/* ============================
-   Member Contributions: X posts
-   ============================ */
-
 .x-posts-grid{
   margin-top: 16px;
   display: grid;
@@ -1333,7 +1323,6 @@ body,
   .x-posts-grid{ grid-template-columns: 1fr; }
 }
 
-/* card */
 .x-post-card{
   display: flex;
   flex-direction: column;
@@ -1345,7 +1334,7 @@ body,
   text-decoration: none;
   color: inherit;
   transition: transform .12s ease, border-color .12s ease, background .12s ease;
-  overflow: hidden; /* чтобы media не вылезали за скругления */
+  overflow: hidden;
 }
 
 .x-post-card:hover{
@@ -1393,7 +1382,6 @@ body,
   white-space: pre-wrap;
 }
 
-/* metrics chips */
 .x-post-card__metrics{
   display:flex;
   gap: 10px;
@@ -1409,7 +1397,6 @@ body,
   background: rgba(0,0,0,0.12);
 }
 
-/* media grid inside card */
 .x-post-card__media{
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1426,14 +1413,13 @@ body,
   background: rgba(255,255,255,0.02);
 }
 
-/* footer */
 .x-posts-footer{
   margin-top: 16px;
   display:flex;
   flex-direction:column;
   align-items:flex-start;
 }
-/* ===== Global map: country hover tooltip ===== */
+
 .country-hover-tooltip-wrap{
   transform: translateY(-14px);
 }
@@ -1481,9 +1467,7 @@ body,
   opacity: 0.75;
 }
 
-/* ===== Global map: country hover tooltip ===== */
 .country-hover-tooltip-wrap{
-  /* positioned in JS */
 }
 
 
@@ -1530,4 +1514,5 @@ body,
 .country-hover-tooltip--zero .country-hover-tooltip__count{
   opacity: 0.75;
 }
+
 
