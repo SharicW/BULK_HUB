@@ -184,7 +184,7 @@ export function renderSocialActivity(target) {
       ];
 
       leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
-      apiStatus.textContent = 'API connected ✅';
+      apiStatus.textContent = '';
     } catch (e) {
       console.error(e);
       apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
@@ -244,4 +244,5 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
