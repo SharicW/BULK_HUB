@@ -1,7 +1,6 @@
 import { createEl } from '../utils/dom.js';
 import {
   getTelegramTop,
-  getDiscordTop,
   getCommunityStats,
   findTelegramUser,
   findDiscordUser,
@@ -95,7 +94,6 @@ export function renderSocialActivity(target) {
     <section class="social-activity__leaderboard">
       <h3 class="social-activity__leaderboard-title">Leaderboard</h3>
       <div class="social-activity__leaderboard-grid" id="leaderboard-grid">
-        ${buildLeaderboardCard({ network: 'Discord', metricLabel: 'Messages', entries: [] })}
         ${buildLeaderboardCard({ network: 'Telegram', metricLabel: 'Messages', entries: [] })}
         ${buildLeaderboardCard({ network: 'X', metricLabel: 'Engage Points', entries: [] })}
       </div>
@@ -150,19 +148,22 @@ export function renderSocialActivity(target) {
     apiStatus.textContent = 'Loading data from API...';
 
     try {
-      const [stats, dcTop, tgTop, xTop] = await Promise.all([
+      const [stats, tgTop, xTop] = await Promise.all([
         getCommunityStats(),
-        getDiscordTop(15),
         getTelegramTop(15),
         getXTop(15),
       ]);
 
       if (!mounted) return;
 
-      const dcCount = Number(stats?.discord_users ?? 0);
+      // Discord: теперь берём размер сервера (discord_server_members),
+      // fallback на старое поле discord_users, если вдруг бекенд ещё не обновлён.
+      const dcCount = Number(stats?.discord_server_members ?? stats?.discord_users ?? 0);
       const tgCount = Number(stats?.telegram_users ?? 0);
       const xCount = Number(stats?.x_users ?? 0);
-      const total = Number(stats?.total_users ?? (dcCount + tgCount + xCount));
+
+      // Чтобы total точно считался с новым discord_server_members — считаем сами.
+      const total = dcCount + tgCount + xCount;
 
       dcCountEl.textContent = String(dcCount);
       tgCountEl.textContent = String(tgCount);
@@ -178,7 +179,6 @@ export function renderSocialActivity(target) {
         }));
 
       const boards = [
-        makeTop5Board('Discord', 'Messages', dcTop),
         makeTop5Board('Telegram', 'Messages', tgTop),
         { network: 'X', metricLabel: 'Engage Points', entries: xEntries },
       ];
@@ -244,5 +244,3 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
-
-
