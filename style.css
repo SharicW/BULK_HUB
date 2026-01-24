@@ -1189,8 +1189,116 @@ body,
 }
 
 @media (max-width: 640px) {
-  body { overflow: auto; }
-  #app { flex-direction: column; }
+  /* Use a bottom navigation bar on phones to keep icons aligned and tappable */
+  body { overflow: hidden; }
+  #app { flex-direction: column; height: 100vh; }
+  @supports (height: 100dvh) {
+    #app { height: 100dvh; }
+  }
+
+  /* Main scroll area */
+  #main {
+    margin-left: 0;
+    width: 100%;
+    height: 100vh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));
+  }
+  @supports (height: 100dvh) {
+    #main { height: 100dvh; }
+  }
+
+  .main-shell {
+    padding: 18px 14px 28px;
+    border: none;
+  }
+
+  /* Bottom nav */
+  #sidebar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100%;
+    height: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom));
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(27, 26, 23, 0.78), rgba(27, 26, 23, 0.96));
+    border-right: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    z-index: 1000;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Hide non-nav chrome to keep the bar clean */
+  .sidebar__brand-logo,
+  .sidebar__label,
+  .sidebar__profile {
+    display: none !important;
+  }
+
+  /* Make links a horizontal row and evenly spaced */
+  .sidebar__nav-group { flex: 1; }
+  .sidebar__links {
+    flex-direction: row;
+    gap: 6px;
+    justify-content: space-around;
+    align-items: center;
+    width: 100%;
+  }
+
+  .sidebar__link {
+    flex: 1;
+    min-width: 54px;
+    padding: 10px 8px;
+    justify-content: center;
+    flex-direction: column;
+    gap: 4px;
+    border-radius: 14px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Disable hover motion on touch devices */
+  .sidebar__link:hover { transform: none; background: transparent; }
+
+  /* Keep the active tab readable */
+  .sidebar__link.is-active {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .sidebar__icon { width: 24px; height: 24px; }
+  .sidebar__text {
+    font-size: 10px;
+    line-height: 1;
+    text-align: center;
+  }
+
+  /* Map: move the floating panel above the bottom nav */
+  .location-panel {
+    left: 12px;
+    right: 12px;
+    width: auto;
+    top: auto;
+    bottom: calc(var(--mobile-nav-height) + 12px + env(safe-area-inset-bottom));
+    padding: 14px;
+  }
+  .location-panel__change { width: 100%; }
+
+  /* Make big numbers fit on small screens */
+  .social-activity__total-value { font-size: 42px; }
+  .social-activity__hero h2 { font-size: 26px; }
+  .stake-tab__value { font-size: 34px; }
+  .page-header h1 { font-size: 24px; }
+}
+
+#app { flex-direction: column; }
   #sidebar {
     position: relative;
     width: 100%;
@@ -1516,3 +1624,16 @@ body,
 }
 
 
+
+
+:root {
+  --mobile-nav-height: 72px;
+}
+
+@media (max-width: 420px) {
+  .social-activity__stat-value { font-size: 28px; }
+  .card-value { font-size: 20px; }
+  .stake-transaction { grid-template-columns: 1fr; }
+  .stake-transaction__amount { text-align: left; }
+  .leaderboard-card__rank { min-width: 40px; }
+}
