@@ -1,32 +1,18 @@
-/**
- * Bulk Hub — 3D Globe Visualization
- * 
- * A Three.js powered interactive globe with:
- * - Land points generated from TopoJSON data
- * - Port/city labels as CSS2D overlays
- * - User location marker with pulsing animation
- * - Smooth auto-rotation and orbit controls
- */
-
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 console.log('Script loaded, Three.js version:', THREE.REVISION);
 
-// TopоJSON будет загружен динамически
 let topojson = null;
 
-// ============================================
-// Constants & Configuration
-// ============================================
 const CONFIG = {
   globe: {
     radius: 5,
     segments: 64,
     rotationSpeed: 0.0003,
     pointSize: 0.055,
-    pointDensity: 0.5, // degrees between points (smaller = more points)
+    pointDensity: 0.5,
   },
   camera: {
     fov: 45,
@@ -37,7 +23,7 @@ const CONFIG = {
     maxDistance: 35,
   },
   colors: {
-    gold: 0xffffff, // White color for land points
+    gold: 0xffffff,
     globeDark: 0x0d0d10,
     background: 0x0a0a0c,
   },
@@ -48,9 +34,6 @@ const CONFIG = {
 
 const STORAGE_KEY = 'bulkhub_user_location';
 
-// ============================================
-// Global State
-// ============================================
 let scene, camera, renderer, labelRenderer;
 let controls;
 let globeGroup;
@@ -61,22 +44,16 @@ let isUserInteracting = false;
 let lastInteractionTime = 0;
 const interactionCooldown = 2000;
 
-// Store label objects for visibility updates
 const labelObjects = [];
 
-// ============================================
-// Initialization
-// ============================================
 async function init() {
   console.log('Initializing globe...');
   
-  // Load topojson dynamically
   try {
     topojson = await import('https://esm.sh/topojson-client@3.1.0');
     console.log('TopоJSON loaded');
   } catch (e) {
     console.warn('Failed to load topojson from esm.sh, trying jsdelivr...', e);
-    // Fallback: load as script
     await loadScript('https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js');
     topojson = window.topojson;
     console.log('TopоJSON loaded via script tag');
@@ -88,32 +65,25 @@ async function init() {
   setupControls();
   setupLights();
   
-  // Create globe group for rotation
   globeGroup = new THREE.Group();
   scene.add(globeGroup);
   
-  // Build the globe
   createGlobeSphere();
   await loadAndCreateLandPoints();
   await loadLabels();
   
-  // Start animation loop
   animate();
   
-  // Handle window resize
   window.addEventListener('resize', onWindowResize);
   
-  // Setup modal & location handling
   setupLocationModal();
   console.log('Modal setup complete');
   
-  // Check for saved location
   checkSavedLocation();
   
   console.log('Globe initialized successfully');
 }
 
-// Helper to load script dynamically
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -124,9 +94,6 @@ function loadScript(src) {
   });
 }
 
-// ============================================
-// Scene Setup
-// ============================================
 function setupScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(CONFIG.colors.background);
@@ -144,7 +111,6 @@ function setupCamera() {
 }
 
 function setupRenderers() {
-  // WebGL Renderer
   renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha: true,
@@ -153,7 +119,6 @@ function setupRenderers() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   document.getElementById('globe-container').appendChild(renderer.domElement);
   
-  // CSS2D Renderer for labels
   labelRenderer = new CSS2DRenderer();
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
   labelRenderer.domElement.style.position = 'absolute';
@@ -172,7 +137,6 @@ function setupControls() {
   controls.maxDistance = CONFIG.camera.maxDistance;
   controls.enablePan = false;
   
-  // Track user interaction
   controls.addEventListener('start', () => {
     isUserInteracting = true;
   });
@@ -184,28 +148,21 @@ function setupControls() {
 }
 
 function setupLights() {
-  // Ambient light for base illumination
   const ambientLight = new THREE.AmbientLight(0x404050, 0.5);
   scene.add(ambientLight);
   
-  // Directional light for subtle highlights
   const directionalLight = new THREE.DirectionalLight(0xffffff, 0.3);
   directionalLight.position.set(5, 3, 5);
   scene.add(directionalLight);
 }
 
-// ============================================
-// Globe Creation
-// ============================================
 function createGlobeSphere() {
-  // Main dark sphere - OPAQUE to prevent see-through issues
   const geometry = new THREE.SphereGeometry(
     CONFIG.globe.radius - 0.03,
     CONFIG.globe.segments,
     CONFIG.globe.segments
   );
   
-  // Solid dark material (not transparent)
   const material = new THREE.MeshPhongMaterial({
     color: CONFIG.colors.globeDark,
     transparent: false,
@@ -217,12 +174,10 @@ function createGlobeSphere() {
   sphere.renderOrder = 0;
   globeGroup.add(sphere);
   
-  // Atmospheric glow ring (subtle)
   createAtmosphereGlow();
 }
 
 function createAtmosphereGlow() {
-  // Create a subtle glow effect around the globe edges
   const glowGeometry = new THREE.SphereGeometry(
     CONFIG.globe.radius + 0.1,
     CONFIG.globe.segments,
@@ -261,12 +216,8 @@ function createAtmosphereGlow() {
   globeGroup.add(glowMesh);
 }
 
-// ============================================
-// Land Points Generation
-// ============================================
 async function loadAndCreateLandPoints() {
   try {
-    // Try local file first, fallback to CDN
     let topoData;
     try {
       const localResponse = await fetch('./data/land-110m.json');
@@ -285,32 +236,25 @@ async function loadAndCreateLandPoints() {
       topoData = await cdnResponse.json();
     }
     
-    // Convert TopoJSON to GeoJSON
     const landGeoJSON = topojson.feature(topoData, topoData.objects.land);
     
-    // Generate land points
     createLandPoints(landGeoJSON);
     
-    // Load and create country borders
     await loadCountryBorders();
     
   } catch (error) {
     console.error('Failed to load land data:', error);
-    // Create fallback simple globe pattern
     createFallbackPoints();
   }
 }
 
-// Load country borders from countries TopoJSON
 async function loadCountryBorders() {
   try {
     const response = await fetch('https://unpkg.com/world-atlas@2.0.2/countries-110m.json');
     const topoData = await response.json();
     
-    // Get country mesh (borders between countries)
     const countries = topojson.feature(topoData, topoData.objects.countries);
     
-    // Create border lines
     createCountryBorders(countries);
     console.log('Country borders loaded');
   } catch (error) {
@@ -318,10 +262,9 @@ async function loadCountryBorders() {
   }
 }
 
-// Create country border lines
 function createCountryBorders(countriesGeoJSON) {
   const material = new THREE.LineBasicMaterial({
-    color: 0xaaaaaa, // Light gray for borders
+    color: 0xaaaaaa,
     transparent: true,
     opacity: 0.35,
     depthTest: true,
@@ -346,12 +289,10 @@ function createCountryBorders(countriesGeoJSON) {
   globeGroup.add(bordersGroup);
 }
 
-// Create a single border line from coordinates
 function createBorderLine(polygonCoords, group, material) {
   polygonCoords.forEach(ring => {
     const points = [];
     
-    // Sample points along the border (skip some for performance)
     for (let i = 0; i < ring.length; i += 2) {
       const [lon, lat] = ring[i];
       const pos = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.01);
@@ -370,17 +311,13 @@ function createLandPoints(landGeoJSON) {
   const positions = [];
   const step = CONFIG.globe.pointDensity;
   
-  // Generate points with strong randomization to avoid visible grid lines
   for (let lat = -85; lat <= 85; lat += step) {
-    // Offset each row by random amount to break horizontal lines
     const rowOffset = (Math.random() - 0.5) * step;
     
     for (let lon = -180; lon <= 180; lon += step) {
-      // Add strong random jitter to break any visible patterns
       const jitteredLat = lat + (Math.random() - 0.5) * step * 0.9 + rowOffset * 0.3;
       const jitteredLon = lon + (Math.random() - 0.5) * step * 0.9;
       
-      // Check if point is on land using d3-geo logic
       if (pointInLand(jitteredLon, jitteredLat, landGeoJSON)) {
         const pos = latLonToVector3(jitteredLat, jitteredLon, CONFIG.globe.radius);
         positions.push(pos.x, pos.y, pos.z);
@@ -390,14 +327,11 @@ function createLandPoints(landGeoJSON) {
   
   console.log(`Generated ${positions.length / 3} land points`);
   
-  // Create BufferGeometry
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   
-  // Create glowing point texture
   const pointTexture = createGlowTexture();
   
-  // Points material with additive blending for glow effect
   const material = new THREE.PointsMaterial({
     size: CONFIG.globe.pointSize,
     map: pointTexture,
@@ -416,7 +350,6 @@ function createLandPoints(landGeoJSON) {
 }
 
 function createFallbackPoints() {
-  // Simple random distribution as fallback
   const positions = [];
   const count = 5000;
   
@@ -449,10 +382,6 @@ function createFallbackPoints() {
   globeGroup.add(landPoints);
 }
 
-/**
- * Check if a point is inside any land polygon
- * Simplified point-in-polygon using ray casting
- */
 function pointInLand(lon, lat, landGeoJSON) {
   const point = [lon, lat];
   
@@ -499,11 +428,7 @@ function pointInLand(lon, lat, landGeoJSON) {
   return false;
 }
 
-/**
- * Create a glowing point texture using canvas
- */
 function createGlowTexture() {
-  // Higher resolution for better quality when zoomed in
   const size = 256;
   const half = size / 2;
   
@@ -512,7 +437,6 @@ function createGlowTexture() {
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   
-  // Create radial gradient for soft glow
   const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
   gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
   gradient.addColorStop(0.15, 'rgba(255, 255, 255, 0.9)');
@@ -528,9 +452,6 @@ function createGlowTexture() {
   return texture;
 }
 
-// ============================================
-// Labels Loading & Creation
-// ============================================
 async function loadLabels() {
   try {
     const response = await fetch('./data/labels.json');
@@ -545,28 +466,21 @@ async function loadLabels() {
 }
 
 function createLabel(name, lat, lon, size = 1) {
-  // Create DOM element for label (without bubble)
   const labelDiv = document.createElement('div');
   labelDiv.className = 'globe-label';
-  // Scale font size based on country size
   const fontSize = Math.max(8, Math.min(12, 10 * size));
   labelDiv.innerHTML = `<span class="label-text" style="font-size: ${fontSize}px">${name}</span>`;
   
-  // Create CSS2DObject - position exactly on globe surface
   const labelObject = new CSS2DObject(labelDiv);
   const position = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.02);
   labelObject.position.copy(position);
   
-  // Store reference for visibility updates (including size for zoom-based filtering)
   labelObject.userData = { lat, lon, element: labelDiv, size: size };
   labelObjects.push(labelObject);
   
   globeGroup.add(labelObject);
 }
 
-// ============================================
-// User Location Handling
-// ============================================
 function setupLocationModal() {
   console.log('Setting up location modal...');
   
@@ -584,7 +498,6 @@ function setupLocationModal() {
     return;
   }
   
-  // Form submission
   form.addEventListener('submit', async (e) => {
     console.log('Form submitted!');
     e.preventDefault();
@@ -615,7 +528,6 @@ function setupLocationModal() {
     setLoading(false);
   });
   
-  // Geolocation button
   geoBtn.addEventListener('click', async (e) => {
     console.log('Geolocation button clicked!');
     e.preventDefault();
@@ -632,7 +544,6 @@ function setupLocationModal() {
         const { latitude: lat, longitude: lon } = position.coords;
         
         try {
-          // Reverse geocode to get city/country
           const locationInfo = await reverseGeocode(lat, lon);
           const city = locationInfo.city || 'Your Location';
           const country = locationInfo.country || '';
@@ -642,7 +553,6 @@ function setupLocationModal() {
           hideModal();
           rotateToLocation(lat, lon);
         } catch (error) {
-          // Use coordinates even if reverse geocoding fails
           saveUserLocation({ city: 'Your Location', country: '', lat, lon });
           addUserMarker(lat, lon, 'Your Location', '');
           hideModal();
@@ -668,7 +578,6 @@ function setupLocationModal() {
     );
   });
   
-  // Change location button
   changeBtn.addEventListener('click', () => {
     showModal();
   });
@@ -718,7 +627,6 @@ function checkSavedLocation() {
       hideModal();
       addUserMarker(lat, lon, city, country);
       
-      // Delayed rotation for smoother initial experience
       setTimeout(() => {
         rotateToLocation(lat, lon);
       }, 500);
@@ -732,9 +640,6 @@ function saveUserLocation(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
-// ============================================
-// Geocoding API
-// ============================================
 async function geocodeLocation(city, country) {
   const query = encodeURIComponent(`${city}, ${country}`);
   const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`;
@@ -778,13 +683,8 @@ async function reverseGeocode(lat, lon) {
   return { city: null, country: null };
 }
 
-// ============================================
-// User Marker
-// ============================================
 function addUserMarker(lat, lon, city, country) {
-  // Remove existing marker if any - full cleanup
   if (userMarker) {
-    // Dispose all children geometries and materials
     userMarker.traverse((child) => {
       if (child.geometry) child.geometry.dispose();
       if (child.material) {
@@ -794,7 +694,6 @@ function addUserMarker(lat, lon, city, country) {
           child.material.dispose();
         }
       }
-      // Remove CSS2DObject elements
       if (child.element && child.element.parentNode) {
         child.element.parentNode.removeChild(child.element);
       }
@@ -803,13 +702,11 @@ function addUserMarker(lat, lon, city, country) {
     userMarker = null;
   }
   
-  // Create marker group
   userMarker = new THREE.Group();
   
-  // Create glowing point
   const pointGeometry = new THREE.SphereGeometry(0.08, 16, 16);
   const pointMaterial = new THREE.MeshBasicMaterial({
-    color: 0xf2c14e, // Gold color for user marker
+    color: 0xf2c14e,
     transparent: false,
     depthTest: true,
     depthWrite: true,
@@ -817,10 +714,9 @@ function addUserMarker(lat, lon, city, country) {
   const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
   userMarker.add(pointMesh);
   
-  // Create pulsing ring
   const ringGeometry = new THREE.RingGeometry(0.1, 0.15, 32);
   const ringMaterial = new THREE.MeshBasicMaterial({
-    color: 0xf2c14e, // Gold color for pulse ring
+    color: 0xf2c14e,
     transparent: true,
     opacity: 0.8,
     side: THREE.DoubleSide,
@@ -832,17 +728,14 @@ function addUserMarker(lat, lon, city, country) {
   ringMesh.userData.pulsePhase = 0;
   userMarker.add(ringMesh);
   
-  // Position marker
   const position = latLonToVector3(lat, lon, CONFIG.globe.radius + 0.05);
   userMarker.position.copy(position);
   
-  // Orient marker to face outward
   userMarker.lookAt(new THREE.Vector3(0, 0, 0));
   userMarker.rotateX(Math.PI / 2);
   
   globeGroup.add(userMarker);
   
-  // Add label
   const labelDiv = document.createElement('div');
   labelDiv.className = 'user-marker-label';
   labelDiv.innerHTML = `
@@ -856,18 +749,12 @@ function addUserMarker(lat, lon, city, country) {
   userMarker.add(labelObject);
 }
 
-// ============================================
-// Globe Rotation Animation
-// ============================================
 function rotateToLocation(lat, lon) {
-  // Calculate target rotation to show the location on the front
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
   
-  // Target rotation for the globe group
   const targetRotationY = -theta + Math.PI;
   
-  // Animate rotation
   const startRotation = globeGroup.rotation.y;
   const startTime = Date.now();
   const duration = CONFIG.animation.rotateToUserDuration;
@@ -876,10 +763,8 @@ function rotateToLocation(lat, lon) {
     const elapsed = Date.now() - startTime;
     const progress = Math.min(elapsed / duration, 1);
     
-    // Ease out cubic
     const eased = 1 - Math.pow(1 - progress, 3);
     
-    // Calculate shortest rotation path
     let deltaRotation = targetRotationY - startRotation;
     while (deltaRotation > Math.PI) deltaRotation -= 2 * Math.PI;
     while (deltaRotation < -Math.PI) deltaRotation += 2 * Math.PI;
@@ -894,9 +779,6 @@ function rotateToLocation(lat, lon) {
   animateRotation();
 }
 
-// ============================================
-// Utility Functions
-// ============================================
 function latLonToVector3(lat, lon, radius) {
   const phi = (90 - lat) * (Math.PI / 180);
   const theta = (lon + 180) * (Math.PI / 180);
@@ -908,20 +790,15 @@ function latLonToVector3(lat, lon, radius) {
   );
 }
 
-// ============================================
-// Animation Loop
-// ============================================
 function animate() {
   requestAnimationFrame(animate);
   
   const now = Date.now();
   
-  // Auto-rotation when not interacting
   if (!isUserInteracting && now - lastInteractionTime > interactionCooldown) {
     globeGroup.rotation.y += CONFIG.globe.rotationSpeed;
   }
   
-  // Animate user marker pulse ring
   if (userMarker) {
     userMarker.children.forEach(child => {
       if (child.userData && child.userData.isPulseRing) {
@@ -933,7 +810,6 @@ function animate() {
     });
   }
   
-  // Update label visibility (hide labels on back side)
   updateLabelVisibility();
   
   controls.update();
@@ -941,31 +817,24 @@ function animate() {
   labelRenderer.render(scene, camera);
 }
 
-// Hide labels that are on the far side of the globe
 function updateLabelVisibility() {
   const cameraPosition = camera.position.clone();
   const cameraDistance = cameraPosition.length();
   
-  // Calculate minimum size threshold based on zoom level
-  // More aggressive filtering - show fewer labels when zoomed out
   const minDist = CONFIG.camera.minDistance;
   const maxDist = CONFIG.camera.maxDistance;
-  const zoomFactor = (cameraDistance - minDist) / (maxDist - minDist); // 0 (close) to 1 (far)
+  const zoomFactor = (cameraDistance - minDist) / (maxDist - minDist);
   
-  // Use exponential curve for more aggressive filtering at medium distances
-  const zoomCurve = Math.pow(zoomFactor, 0.7); // Makes it more sensitive
+  const zoomCurve = Math.pow(zoomFactor, 0.7);
   
-  // Size threshold: 0.55 when very close, 1.3 when far (only biggest countries)
   const minSizeThreshold = 0.55 + zoomCurve * 0.75;
   
   labelObjects.forEach(labelObj => {
     const labelSize = labelObj.userData.size || 1;
     
-    // Check if label should be shown based on zoom level
     const showByZoom = labelSize >= minSizeThreshold;
     
     if (!showByZoom) {
-      // Hide small labels when zoomed out
       if (labelObj.userData.element) {
         labelObj.userData.element.style.opacity = '0';
         labelObj.userData.element.style.pointerEvents = 'none';
@@ -973,20 +842,15 @@ function updateLabelVisibility() {
       return;
     }
     
-    // Get world position of the label
     const labelWorldPos = new THREE.Vector3();
     labelObj.getWorldPosition(labelWorldPos);
     
-    // Vector from globe center to label
     const labelDir = labelWorldPos.clone().normalize();
     
-    // Vector from globe center to camera
     const cameraDir = cameraPosition.clone().normalize();
     
-    // Dot product: positive = facing camera, negative = facing away
     const dot = labelDir.dot(cameraDir);
     
-    // Show label only if facing camera (with small threshold)
     const isFacingCamera = dot > 0.1;
     
     if (labelObj.userData.element) {
@@ -996,9 +860,6 @@ function updateLabelVisibility() {
   });
 }
 
-// ============================================
-// Window Resize Handler
-// ============================================
 function onWindowResize() {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -1007,10 +868,6 @@ function onWindowResize() {
   labelRenderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-// ============================================
-// Start Application
-// ============================================
-// Wait for DOM to be ready
 function domReady() {
   return new Promise(resolve => {
     if (document.readyState === 'loading') {
@@ -1021,7 +878,6 @@ function domReady() {
   });
 }
 
-// Start the app (wrapped in async IIFE to avoid top-level await)
 (async function() {
   try {
     await domReady();
@@ -1029,7 +885,6 @@ function domReady() {
     await init();
   } catch (error) {
     console.error('Failed to initialize globe:', error);
-    // Hide modal and show error on page
     document.body.innerHTML = `
       <div style="color: white; padding: 40px; font-family: sans-serif;">
         <h1>Error loading globe</h1>
