@@ -158,7 +158,7 @@ export function renderStakeInformation(target) {
       <div>
         <p class="eyebrow">Stake</p>
         <h1>Stake Information</h1>
-        <p class="muted">Live data from BULK_HUB_DATABASE</p>
+        <p class="muted">Information on staking in Bulk token on live stream</p>
       </div>
     </div>
 
@@ -187,7 +187,7 @@ export function renderStakeInformation(target) {
         <div>
           <p class="eyebrow">Activity</p>
           <h2>10 recent transactions</h2>
-          <p class="muted">From Solscan (stored in DB)</p>
+          <p class="muted">From Solscan</p>
         </div>
         <button type="button" class="btn-secondary stake-transactions__refresh" aria-label="Refresh transactions">
           Refresh
@@ -317,3 +317,4 @@ export function renderStakeInformation(target) {
     refreshBtn.removeEventListener("click", handleRefresh);
   };
 }
+
