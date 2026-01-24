@@ -173,7 +173,7 @@ function buildModal(allowClose) {
         <div class="login-modal__error hidden" id="login-error" aria-live="assertive"></div>
 
         <div class="form-actions" style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;">
-          <button type="button" class="btn-secondary" id="login-skip">Пропустить</button>
+          <button type="button" class="btn-secondary" id="login-skip">Skip</button>
           <button type="submit" class="btn-primary" id="login-submit">Log in</button>
         </div>
       </form>
@@ -351,3 +351,4 @@ function hideModal() {
   modalState.form?.reset();
   clearError();
 }
+
