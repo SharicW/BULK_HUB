@@ -20,7 +20,6 @@ async function request(path, options = {}) {
   }
 
   if (!res.ok) {
-    // чтобы в консоли было видно, что реально вернул бекенд
     throw new Error(
       `API ${res.status} ${res.statusText} on ${path}: ${typeof data === "string" ? data : JSON.stringify(data)}`
     );
@@ -29,7 +28,6 @@ async function request(path, options = {}) {
   return data;
 }
 
-// --- community / old endpoints ---
 export async function getTelegramTop(limit = 15) {
   return request(`/telegram/top/${limit}`);
 }
@@ -50,7 +48,6 @@ export async function getCommunityStats() {
   return request(`/community/stats`);
 }
 
-// --- NEW: sanctum + solscan ---
 export async function getSanctumLatest() {
   return request(`/sanctum/latest`);
 }
@@ -67,7 +64,6 @@ export async function refreshSolscan(limitRows = 10) {
   return request(`/solscan/refresh?limit_rows=${encodeURIComponent(limitRows)}`, { method: "POST" });
 }
 
-// --- X (Twitter) ---
 export async function getXTop(limit = 15) {
   return request(`/x/top/${encodeURIComponent(limit)}`);
 }
@@ -76,7 +72,6 @@ export async function findXUser(username) {
   return request(`/x/${encodeURIComponent(username)}`);
 }
 
-// --- X posts for Member Contributions ---
 export async function getXPosts(username, limit = 30, offset = 0) {
   return request(
     `/x/posts?username=${encodeURIComponent(username)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`
