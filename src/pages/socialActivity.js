@@ -63,7 +63,7 @@ export function renderSocialActivity(target) {
       <div>
         <p class="eyebrow">Community</p>
         <h1>Social Activity</h1>
-        <p class="muted">Feed and engagement metrics coming soon</p>
+        <p class="muted">Check out the engagement metrics for the Bulk community</p>
       </div>
     </div>
 
@@ -244,3 +244,4 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
