@@ -141,8 +141,9 @@ function buildModal(allowClose) {
     <div class="login-modal__panel">
       <div class="login-modal__header">
         <p class="eyebrow">Secure access</p>
-        <h2>Log in</h2>
-        <p class="muted">Provide your credentials to continue — or skip if you don't want to place a marker.</p>
+        <h2>Your account</h2>
+        <p class="muted">If you do not have an account yet, please register. If you already have an account, please log in</p>
+        <p class="muted">IMPORTANT: Registration is only required for Global Map. If you do not need it, please click "Skip"</p>
       </div>
 
       <form class="login-modal__form" id="login-modal-form" novalidate>
@@ -339,3 +340,4 @@ function hideModal() {
   modalState.form?.reset();
   clearError();
 }
+
