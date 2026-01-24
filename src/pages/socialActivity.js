@@ -3,7 +3,6 @@ import {
   getTelegramTop,
   getCommunityStats,
   findTelegramUser,
-  findDiscordUser,
   getXTop,
   findXUser,
 } from '../api.js';
@@ -111,7 +110,6 @@ export function renderSocialActivity(target) {
           <label for="community-filter">Filter by network</label>
           <div class="styled-select">
             <select id="community-filter" class="select-dropdown">
-              <option value="discord">Discord</option>
               <option value="telegram" selected>Telegram</option>
               <option value="x">X (formerly Twitter)</option>
             </select>
@@ -156,13 +154,13 @@ export function renderSocialActivity(target) {
 
       if (!mounted) return;
 
-      // Discord: теперь берём размер сервера (discord_server_members),
-      // fallback на старое поле discord_users, если вдруг бекенд ещё не обновлён.
+      // Discord: размер сервера (discord_server_members),
+      // fallback на старое поле discord_users, если бекенд ещё не обновлён.
       const dcCount = Number(stats?.discord_server_members ?? stats?.discord_users ?? 0);
       const tgCount = Number(stats?.telegram_users ?? 0);
       const xCount = Number(stats?.x_users ?? 0);
 
-      // Чтобы total точно считался с новым discord_server_members — считаем сами.
+      // Total считаем сами, чтобы учесть новое поле discord_server_members.
       const total = dcCount + tgCount + xCount;
 
       dcCountEl.textContent = String(dcCount);
@@ -184,7 +182,7 @@ export function renderSocialActivity(target) {
       ];
 
       leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
-      apiStatus.textContent = '';
+      apiStatus.textContent = 'points = posts*5+ likes*2+ retweets*3+ replies*4+ quotes*3+ bookmarks*2+ floor(views/100)';
     } catch (e) {
       console.error(e);
       apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
@@ -210,16 +208,6 @@ export function renderSocialActivity(target) {
           return;
         }
         resultValue.textContent = `${data?.messages ?? 0} messages for ${data?.username ?? username} on Telegram`;
-        return;
-      }
-
-      if (network === 'discord') {
-        const data = await findDiscordUser(username);
-        if (data && data.error) {
-          resultValue.textContent = `Not found in Discord: ${username}`;
-          return;
-        }
-        resultValue.textContent = `${data?.messages ?? 0} messages for ${data?.username ?? username} on Discord`;
         return;
       }
 
