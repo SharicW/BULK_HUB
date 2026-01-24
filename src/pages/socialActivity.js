@@ -182,7 +182,7 @@ export function renderSocialActivity(target) {
       ];
 
       leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
-      apiStatus.textContent = 'points = posts*5+ likes*2+ retweets*3+ replies*4+ quotes*3+ bookmarks*2+ floor(views/100)';
+      apiStatus.textContent = 'Engage Points = posts*5+ likes*2+ retweets*3+ replies*4+ quotes*3+ bookmarks*2+ floor(views/100)';
     } catch (e) {
       console.error(e);
       apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
@@ -232,3 +232,4 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
