@@ -83,7 +83,7 @@ export function renderProfile(target) {
       <div>
         <p class="eyebrow">Account</p>
         <h1>Profile settings</h1>
-        <p class="muted">Manage your session and update your password.</p>
+        <p class="muted">Manage your session and update your password</p>
       </div>
     </div>
 
@@ -260,3 +260,4 @@ export function renderProfile(target) {
     logoutBtn.removeEventListener('click', handleLogoutClick);
   };
 }
+
