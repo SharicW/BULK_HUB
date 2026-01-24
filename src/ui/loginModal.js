@@ -1,15 +1,12 @@
-// src/ui/loginModal.js
 import { createEl } from '../utils/dom.js';
 
 const ALLOW_CLOSE = false;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
-// === Настройка backend (твой Railway) ===
 const API_BASE =
   window.BULK_AUTH_API_BASE ||
-  'https://bulkhubdatabase-production.up.railway.app'; // <-- оставь так или поменяй
+  'https://bulkhubdatabase-production.up.railway.app';
 
-// === Storage keys ===
 const LS_TOKEN = 'bulk_auth_token';
 const SS_TOKEN = 'bulk_auth_token_session';
 const LS_SKIP = 'bulk_skip_login';
@@ -37,7 +34,6 @@ function setSkipped(v) {
   localStorage.setItem(LS_SKIP, v ? '1' : '0');
 }
 
-// === API helpers ===
 async function api(path, { method = 'GET', body, auth = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (auth) {
@@ -60,7 +56,6 @@ async function api(path, { method = 'GET', body, auth = true } = {}) {
 }
 
 async function loginRequest(email, password) {
-  // backend должен вернуть { token, user }
   return await api('/auth/login', {
     method: 'POST',
     auth: false,
@@ -112,13 +107,11 @@ export async function initLoginModal(options = {}) {
     handlersAttached = true;
   }
 
-  // 1) если пользователь нажал "Пропустить" ранее — не мешаем
   if (isSkipped()) {
     hideModal();
     return { show: showModal, hide: hideModal };
   }
 
-  // 2) если есть токен — проверим /auth/me, если ок — не показываем модалку
   const token = getToken();
   if (token) {
     try {
@@ -127,12 +120,10 @@ export async function initLoginModal(options = {}) {
       hideModal();
       return { show: showModal, hide: hideModal };
     } catch (e) {
-      // токен битый/просрочен
       clearToken();
     }
   }
 
-  // 3) иначе — показываем
   showModal();
   return { show: showModal, hide: hideModal };
 }
@@ -212,7 +203,6 @@ function attachHandlers() {
   form.addEventListener('submit', handleSubmit);
   overlay.addEventListener('keydown', trapFocus);
 
-  // Skip всегда доступен
   skipButton?.addEventListener('click', handleSkip);
 
   if (modalState.allowClose) {
@@ -276,7 +266,7 @@ async function handleSubmit(event) {
   event.preventDefault();
 
   const email = modalState.emailInput.value.trim().toLowerCase();
-  const password = modalState.passwordInput.value; // любой непустой
+  const password = modalState.passwordInput.value;
   const remember = modalState.rememberInput.checked;
 
   if (!EMAIL_PATTERN.test(email)) {
@@ -293,7 +283,6 @@ async function handleSubmit(event) {
 
   clearError();
 
-  // блокируем кнопку на время запроса
   const btn = modalState.submitButton;
   const oldText = btn?.textContent;
   if (btn) {
@@ -311,7 +300,6 @@ async function handleSubmit(event) {
     window.dispatchEvent(new CustomEvent('bulk:login', { detail: data.user }));
   } catch (e) {
     setError(e.message || 'Login failed');
-    // НЕ закрываем модалку при ошибке
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -351,4 +339,3 @@ function hideModal() {
   modalState.form?.reset();
   clearError();
 }
-
