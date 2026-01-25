@@ -249,7 +249,7 @@ let publicPointerTargetEl = null;
 let publicNeedsPick = false;
 let publicLastPointerEvent = null;
 
-// Tap detection для мобильных устройств
+
 let publicTapHandler = null;
 let touchStartX = 0;
 let touchStartY = 0;
@@ -308,7 +308,7 @@ export async function initGlobalMap(target) {
   }
 
   mountEl = target;
-  retryCount = 0; // Сбрасываем счётчик ретраев
+  retryCount = 0;
   
   const layout = buildLayout();
   target.innerHTML = '';
@@ -322,7 +322,7 @@ export async function initGlobalMap(target) {
 
     QUALITY = detectQuality();
     
-    // Логируем качество для отладки на мобильных
+
     if (QUALITY.isMobile) {
       console.log('Globe: mobile mode enabled', {
         isIOS: QUALITY.isIOS,
@@ -332,23 +332,20 @@ export async function initGlobalMap(target) {
       });
     }
 
-    // Ждём несколько кадров чтобы DOM layout завершился
-    // На мобильных устройствах требуется больше времени
+
     const frameCount = QUALITY.isMobile ? 3 : 2;
     for (let i = 0; i < frameCount; i++) {
       await new Promise(resolve => requestAnimationFrame(resolve));
     }
     
-    // Проверяем что контейнер имеет реальные размеры
-    // На мобильных даём больше времени
+
     const timeout = QUALITY.isMobile ? 5000 : 3000;
     await waitForValidSize(stageEl, timeout);
 
-    // Используем retry-механизм для надёжности
+
     await initWithRetry(target);
     
-    // Принудительный resize после инициализации
-    // Несколько попыток для надёжности на мобильных
+
     const resizeAttempts = QUALITY.isMobile ? 3 : 2;
     for (let i = 0; i < resizeAttempts; i++) {
       await new Promise(resolve => setTimeout(resolve, 100 * (i + 1)));
@@ -371,7 +368,7 @@ export async function initGlobalMap(target) {
     p.className = 'muted';
     p.textContent = `Не удалось загрузить глобус: ${err?.message || String(err)}`;
     
-    // Кнопка повторной попытки
+
     const retryBtn = document.createElement('button');
     retryBtn.className = 'btn-secondary';
     retryBtn.style.marginTop = '16px';
@@ -387,7 +384,7 @@ export async function initGlobalMap(target) {
   }
 }
 
-// Утилита: ждём пока контейнер получит валидные размеры (не 0x0)
+
 function waitForValidSize(element, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
@@ -399,7 +396,7 @@ function waitForValidSize(element, timeoutMs = 3000) {
       }
       
       const rect = element?.getBoundingClientRect?.();
-      // На мобильных устройствах минимальный размер меньше
+
       const minSize = window.innerWidth <= 768 ? 50 : 100;
       
       if (rect && rect.width > minSize && rect.height > minSize) {
@@ -408,7 +405,7 @@ function waitForValidSize(element, timeoutMs = 3000) {
       }
       
       if (Date.now() - startTime > timeoutMs) {
-        // Fallback: используем window размеры если контейнер так и не получил размеры
+
         console.warn('Globe container did not get valid size, using fallback');
         const fallbackWidth = Math.max(300, window.innerWidth - 32);
         const fallbackHeight = Math.max(300, window.innerHeight * 0.5);
@@ -423,7 +420,7 @@ function waitForValidSize(element, timeoutMs = 3000) {
   });
 }
 
-// Проверка поддержки WebGL
+
 function checkWebGLSupport() {
   try {
     const canvas = document.createElement('canvas');
@@ -432,12 +429,12 @@ function checkWebGLSupport() {
       return { supported: false, reason: 'WebGL not available' };
     }
     
-    // Проверяем что контекст не потерян
+
     if (gl.isContextLost && gl.isContextLost()) {
       return { supported: false, reason: 'WebGL context lost' };
     }
     
-    // Получаем информацию о рендерере для отладки
+
     const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
     const renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown';
     
@@ -447,7 +444,7 @@ function checkWebGLSupport() {
   }
 }
 
-// Auto-retry механизм при проблемах с инициализацией
+
 let retryCount = 0;
 const MAX_RETRIES = 2;
 
@@ -459,25 +456,25 @@ async function initWithRetry(target) {
   
   try {
     await init();
-    retryCount = 0; // Сбрасываем счётчик при успехе
+    retryCount = 0;
   } catch (err) {
     if (retryCount < MAX_RETRIES) {
       retryCount++;
       console.warn(`Globe init failed, retrying (${retryCount}/${MAX_RETRIES})...`, err);
       
-      // Ждём перед повторной попыткой
+
       await new Promise(r => setTimeout(r, 500));
       
-      // Очищаем предыдущую попытку
+
       try { destroyGlobalMap(); } catch {}
       isActive = true;
       
-      // Пересоздаём layout
+
       const layout = buildLayout();
       target.innerHTML = '';
       target.appendChild(layout);
       
-      // Ждём DOM
+
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await waitForValidSize(stageEl, 2000);
       
@@ -490,7 +487,7 @@ async function initWithRetry(target) {
 export function destroyGlobalMap() {
   isActive = false;
 
-  // Очищаем таймаут проверки рендера
+
   if (renderCheckTimeout) {
     clearTimeout(renderCheckTimeout);
     renderCheckTimeout = null;
@@ -506,7 +503,7 @@ export function destroyGlobalMap() {
   if (Array.isArray(countriesIndex) && countriesIndex.length === 0) countriesIndex = null;
 
   
-  // Закрываем и удаляем tooltip страны
+
   clearPublicHoverTooltip();
   if (publicTooltipEl?.parentNode) {
     try { publicTooltipEl.parentNode.removeChild(publicTooltipEl); } catch {}
@@ -659,13 +656,11 @@ async function init() {
 
   animate();
   
-  // Проверка успешности рендера после инициализации
-  // Это решает проблему "не грузится с первого раза" на десктопе
+
   scheduleRenderCheck();
 }
 
-// Проверяем что глобус успешно отрендерился
-// Решает проблему "не грузится с первого раза" на десктопе
+
 let renderCheckTimeout = null;
 let renderCheckCount = 0;
 
@@ -682,7 +677,7 @@ function scheduleRenderCheck() {
     const canvas = renderer.domElement;
     const hasValidSize = canvas && canvas.width > 0 && canvas.height > 0;
     
-    // Также проверяем что контейнер видим
+
     const containerRect = stageEl?.getBoundingClientRect?.();
     const containerVisible = containerRect && containerRect.width > 50 && containerRect.height > 50;
     
@@ -694,22 +689,22 @@ function scheduleRenderCheck() {
         containerH: containerRect?.height
       });
       
-      // Принудительный resize
+
       handleResize();
       
-      // Если после 3 попыток всё ещё не работает - останавливаемся
+
       if (renderCheckCount < 3) {
         renderCheckTimeout = setTimeout(doCheck, 1000 * renderCheckCount);
       }
     } else {
-      // Успешно! Делаем финальный рендер
+
       if (scene && camera) {
         renderer.render(scene, camera);
       }
     }
   };
   
-  // Первая проверка через 300ms
+
   renderCheckTimeout = setTimeout(doCheck, 300);
 }
 
@@ -719,39 +714,38 @@ function detectQuality() {
   const mem = navigator.deviceMemory || 4;
   const screenWidth = window.innerWidth;
   
-  // Определяем мобильное устройство
+
   const isMobile = screenWidth <= 768 || window.matchMedia('(pointer: coarse)').matches;
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                 (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   
-  // На iOS Safari WebGL особенно требователен к ресурсам
+
   const isIOSSafari = isIOS && /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
   
-  // Определяем уровень качества
-  // Мобильные устройства всегда используют низкое качество для стабильности
+
   const low = isMobile || cores <= 4 || mem <= 4 || dpr >= 2.5;
   
-  // Ещё более агрессивное ограничение для iOS Safari
+
   const veryLow = isIOSSafari || (isMobile && dpr >= 3);
   
-  // Ограничиваем DPR: на мобильных максимум 1.5, на iOS Safari максимум 1
+
   let pixelRatioCap;
   if (veryLow) {
-    pixelRatioCap = 1; // iOS Safari - минимальный DPR для стабильности
+    pixelRatioCap = 1;
   } else if (isMobile) {
-    pixelRatioCap = 1.5; // Мобильные - умеренный DPR
+    pixelRatioCap = 1.5;
   } else if (low) {
     pixelRatioCap = CONFIG.quality.pixelRatioLow;
   } else {
     pixelRatioCap = CONFIG.quality.pixelRatioHigh;
   }
   
-  // Уменьшаем количество точек на мобильных для производительности
+
   let landPoints;
   if (veryLow) {
-    landPoints = 8000; // Минимум для iOS Safari
+    landPoints = 8000;
   } else if (isMobile) {
-    landPoints = 10000; // Мобильные
+    landPoints = 10000;
   } else if (low) {
     landPoints = CONFIG.quality.landPointsLow;
   } else {
@@ -766,7 +760,7 @@ function detectQuality() {
     landPoints,
     borderDecimate: (isMobile || low) ? CONFIG.quality.borderDecimateLow : CONFIG.quality.borderDecimateHigh,
     pixelRatioCap,
-    maskW: isMobile ? 512 : CONFIG.quality.landMaskW, // Уменьшаем текстуру на мобильных
+    maskW: isMobile ? 512 : CONFIG.quality.landMaskW,
     maskH: isMobile ? 256 : CONFIG.quality.landMaskH,
   };
 }
@@ -877,11 +871,10 @@ function setupRenderers() {
   const { width, height } = getStageSize();
   const dpr = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatioCap);
 
-  // На мобильных отключаем антиалиасинг для производительности
-  // На iOS Safari это критично для стабильности WebGL
+
   const useAA = !QUALITY.isMobile && dpr <= 1.5;
   
-  // Для iOS Safari используем более консервативные настройки
+
   const powerPref = QUALITY.isIOSSafari ? 'low-power' : 'high-performance';
 
   try {
@@ -891,9 +884,9 @@ function setupRenderers() {
       powerPreference: powerPref,
       depth: true,
       stencil: false,
-      // На iOS Safari лучше preserveDrawingBuffer: false для производительности
+
       preserveDrawingBuffer: false,
-      // Ограничиваем точность на мобильных
+
       precision: QUALITY.isMobile ? 'mediump' : 'highp',
     });
   } catch (e) {
@@ -904,7 +897,7 @@ function setupRenderers() {
   renderer.setSize(width, height);
   renderer.setPixelRatio(dpr);
   
-  // Устанавливаем стили для canvas чтобы он занимал весь контейнер
+
   renderer.domElement.style.width = '100%';
   renderer.domElement.style.height = '100%';
   renderer.domElement.style.display = 'block';
@@ -918,7 +911,7 @@ function setupRenderers() {
   labelRenderer.domElement.style.pointerEvents = 'none';
   labelsHost.appendChild(labelRenderer.domElement);
   
-  // На мобильных добавляем слушатель потери контекста WebGL
+
   if (QUALITY.isMobile) {
     renderer.domElement.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
@@ -927,7 +920,7 @@ function setupRenderers() {
     
     renderer.domElement.addEventListener('webglcontextrestored', () => {
       console.log('WebGL context restored');
-      // При восстановлении контекста пересоздаём рендер
+
       if (isActive) {
         handleResize();
       }
@@ -2085,7 +2078,7 @@ function attachPublicHoverHandlers() {
   el.addEventListener('pointermove', publicPointerMoveHandler, { passive: true });
   el.addEventListener('pointerleave', publicPointerLeaveHandler, { passive: true });
   
-  // Tap detection для мобильных — показывает tooltip при коротком тапе
+
   el.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
@@ -2102,9 +2095,9 @@ function attachPublicHoverHandlers() {
     const dy = Math.abs(touch.clientY - touchStartY);
     const dt = Date.now() - touchStartTime;
     
-    // Если движение < 12px и время < 300ms — это tap
+
     if (dx < 12 && dy < 12 && dt < 300) {
-      // Эмулируем pointermove в точке тапа для raycast
+
       publicLastPointerEvent = {
         clientX: touch.clientX,
         clientY: touch.clientY
@@ -2113,7 +2106,7 @@ function attachPublicHoverHandlers() {
       publicPointerY = touch.clientY;
       publicNeedsPick = true;
       
-      // Принудительно обрабатываем pick сразу
+
       processPublicHoverPick();
     }
   };
@@ -2253,14 +2246,14 @@ function setupLocationPanel() {
 
   if (!locationForm) return;
   
-  // Мобильный collapse toggle
+
   const panelHeader = locationPanel.querySelector('.location-panel__header');
   if (panelHeader && QUALITY?.isMobile) {
-    // По умолчанию свёрнут на мобиле
+
     locationPanel.classList.add('is-collapsed');
     
     panelHeader.addEventListener('click', (e) => {
-      // Не сворачиваем если кликнули на input/button
+
       if (e.target.closest('input, button, a')) return;
       locationPanel.classList.toggle('is-collapsed');
     });
@@ -2700,22 +2693,22 @@ function updateLabelVisibility() {
 }
 
 function getStageSize() {
-  // На мобильных минимальный размер меньше
+
   const minSize = QUALITY?.isMobile ? 50 : 100;
   
   const rect = stageEl?.getBoundingClientRect?.();
   
-  // Проверяем что rect валидный и имеет реальные размеры
+
   if (rect && rect.width > minSize && rect.height > minSize) {
     return { width: rect.width, height: rect.height };
   }
   
-  // Fallback: пробуем получить размеры из offsetWidth/offsetHeight
+
   if (stageEl && stageEl.offsetWidth > minSize && stageEl.offsetHeight > minSize) {
     return { width: stageEl.offsetWidth, height: stageEl.offsetHeight };
   }
   
-  // Fallback 2: пробуем из map-stage__inner
+
   const innerEl = stageEl?.querySelector?.('.map-stage__inner');
   if (innerEl) {
     const innerRect = innerEl.getBoundingClientRect();
@@ -2724,8 +2717,7 @@ function getStageSize() {
     }
   }
   
-  // Последний fallback: используем процент от окна
-  // На мобильных используем меньшие размеры
+
   const isMobile = window.innerWidth <= 768;
   const fallbackWidth = isMobile 
     ? Math.max(280, window.innerWidth - 32) 
@@ -2743,7 +2735,7 @@ function handleResize() {
 
   const { width, height } = getStageSize();
   
-  // Защита от невалидных размеров (на мобильных минимум меньше)
+
   const minSize = QUALITY?.isMobile ? 50 : 100;
   if (width < minSize || height < minSize) {
     console.warn('Globe: invalid resize dimensions, skipping', width, height);
@@ -2758,7 +2750,7 @@ function handleResize() {
   renderer.setSize(width, height);
   labelRenderer.setSize(width, height);
   
-  // Принудительный рендер после resize
+
   if (scene && camera) {
     renderer.render(scene, camera);
   }
@@ -2794,5 +2786,6 @@ function updatePausedState() {
   const hidden = document.hidden;
   isPaused = hidden || !isInView;
 }
+
 
 
