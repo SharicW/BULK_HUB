@@ -212,7 +212,7 @@ export function renderSocialActivity(target) {
       console.error(e);
       apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
     }
-  })
+  }
 
   async function handleSearch() {
     const username = searchInput.value.trim();
@@ -256,6 +256,7 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
 
 
