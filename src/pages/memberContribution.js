@@ -157,6 +157,7 @@ export function renderMemberContribution(target) {
 
       <div class="contributions__posts-result" id="x-posts-result">
         <span class="muted">Search results will show all posts by the selected username</span>
+        <p class="muted" id="x-posts-community-note"></p>
       </div>
 
       <div class="x-posts-grid" id="x-posts-grid"></div>
@@ -168,6 +169,28 @@ export function renderMemberContribution(target) {
   `;
 
   target.appendChild(wrapper);
+
+  const communityNote = document.getElementById('x-posts-community-note');
+  if (communityNote) {
+    const link = document.createElement('span');
+    link.textContent = 'X community';
+    link.style.cursor = 'pointer';
+    link.style.color = '#1d9bf0';
+    link.style.textDecoration = 'underline';
+    link.addEventListener('click', () => {
+      window.open(
+        'https://x.com/i/communities/1979868469400363142',
+        '_blank'
+      );
+    });
+
+    communityNote.append(
+      'Posts are counted only for those who are members of the ',
+      link,
+      '.'
+    );
+  }
+}
 
   const searchBtn = wrapper.querySelector('#x-posts-search-btn');
   const searchInput = wrapper.querySelector('#x-posts-search');
@@ -346,3 +369,4 @@ export function renderMemberContribution(target) {
     loadMoreBtn.removeEventListener('click', handleLoadMore);
   };
 }
+
