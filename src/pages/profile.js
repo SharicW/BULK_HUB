@@ -139,7 +139,7 @@ export function renderProfile(target) {
 
   let disposed = false;
 
-  // Показываем Login или Logout в зависимости от auth состояния
+
   function updateAuthButtons() {
     const token = getAuthToken();
     const isLoggedIn = !!token;
@@ -258,7 +258,7 @@ export function renderProfile(target) {
     openLoginModal();
   }
 
-  // Слушаем события авторизации для обновления UI
+
   function handleAuthChange() {
     if (!disposed) {
       loadMe();
@@ -286,3 +286,4 @@ export function renderProfile(target) {
     window.removeEventListener('bulk:logout', handleAuthChange);
   };
 }
+
