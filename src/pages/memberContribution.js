@@ -186,8 +186,7 @@ export function renderMemberContribution(target) {
 
     communityNote.append(
       'Posts are counted only for those who are members of the ',
-      link,
-      '.'
+      link
     );
   }
 }
@@ -369,4 +368,5 @@ export function renderMemberContribution(target) {
     loadMoreBtn.removeEventListener('click', handleLoadMore);
   };
 }
+
 
