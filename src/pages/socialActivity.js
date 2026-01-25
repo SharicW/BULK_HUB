@@ -182,11 +182,37 @@ export function renderSocialActivity(target) {
 
       leaderboardGrid.innerHTML = boards.map(buildLeaderboardCard).join('');
       apiStatus.textContent = 'Engage Points = posts*5+ likes*2+ retweets*3+ replies*4+ quotes*3+ bookmarks*2+ floor(views/100)';
+      
+      const communityInfo = document.createElement('span');
+      communityInfo.style.display = 'block';
+      communityInfo.style.marginTop = '4px';
+      communityInfo.style.fontSize = '12px';
+
+      const communityLink = document.createElement('span');
+      communityLink.textContent = 'X';
+      communityLink.style.cursor = 'pointer';
+      communityLink.style.color = '#1d9bf0';
+      communityLink.style.textDecoration = 'underline';
+      communityLink.addEventListener('click', () => {
+        window.open(
+          'https://x.com/i/communities/1979868469400363142',
+          '_blank'
+        );
+      });
+
+      communityInfo.append(
+        'Points are awarded only to those who are members of ',
+        communityLink,
+        ' community.'
+      );
+
+      apiStatus.appendChild(document.createElement('br'));
+      apiStatus.appendChild(communityInfo);
     } catch (e) {
       console.error(e);
       apiStatus.textContent = 'API error ❌ (check CORS / API_BASE / service)';
     }
-  }
+  })
 
   async function handleSearch() {
     const username = searchInput.value.trim();
@@ -230,5 +256,6 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
 
