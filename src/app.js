@@ -22,7 +22,7 @@ const mainOutlet = document.getElementById('page-container');
 const sidebarEl = document.getElementById('sidebar');
 
 function init() {
-  // Инициализация определения устройства (добавляет классы на <html>)
+
   initDeviceDetection();
   
   initLoginModal();
@@ -41,12 +41,11 @@ function handleRouteChange() {
   const hash = routes[window.location.hash] ? window.location.hash : '#map';
   const route = routes[hash] || routes['#map'];
 
-  // Страховка: принудительно скрываем/удаляем country tooltip при смене вкладки
-  // Это нужно потому что tooltip добавляется в body и может "пережить" cleanup
+
   const countryTooltip = document.querySelector('.country-hover-tooltip-wrap');
   if (countryTooltip) {
     countryTooltip.style.display = 'none';
-    // Удаляем из DOM если уходим с Global Map
+
     if (hash !== '#map') {
       try { countryTooltip.remove(); } catch {}
     }
@@ -72,4 +71,5 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
 
