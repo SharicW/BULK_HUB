@@ -186,7 +186,7 @@ export function renderMemberContribution(target) {
     });
 
     communityNote.append(
-      'Posts are counted only for those who are members of the ',
+      'Posts are counted only when you publish them inside the ',
       link,
       '.'
     );
@@ -371,3 +371,4 @@ export function renderMemberContribution(target) {
     loadMoreBtn.removeEventListener('click', handleLoadMore);
   };
 }
+
