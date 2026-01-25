@@ -107,7 +107,7 @@ export async function initLoginModal(options = {}) {
     handlersAttached = true;
   }
 
-  // Проверяем токен и загружаем пользователя если есть
+
   const token = getToken();
   if (token) {
     try {
@@ -118,8 +118,7 @@ export async function initLoginModal(options = {}) {
     }
   }
 
-  // НЕ открываем модалку автоматически!
-  // Модалка открывается только по кнопке Login в Profile или Global Map
+
   hideModal();
   return { show: showModal, hide: hideModal };
 }
@@ -336,4 +335,5 @@ function hideModal() {
   modalState.form?.reset();
   clearError();
 }
+
 
