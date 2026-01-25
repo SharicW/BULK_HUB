@@ -189,7 +189,7 @@ export function renderSocialActivity(target) {
       communityInfo.style.fontSize = '12px';
 
       const communityLink = document.createElement('span');
-      communityLink.textContent = 'X';
+      communityLink.textContent = 'X community';
       communityLink.style.cursor = 'pointer';
       communityLink.style.color = '#1d9bf0';
       communityLink.style.textDecoration = 'underline';
@@ -202,8 +202,7 @@ export function renderSocialActivity(target) {
 
       communityInfo.append(
         'Points are awarded only to those who are members of ',
-        communityLink,
-        ' community.'
+        communityLink
       );
 
       apiStatus.appendChild(document.createElement('br'));
@@ -256,6 +255,7 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
 
 
