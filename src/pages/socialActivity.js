@@ -154,13 +154,12 @@ export function renderSocialActivity(target) {
 
       if (!mounted) return;
 
-      // Discord: размер сервера (discord_server_members),
-      // fallback на старое поле discord_users, если бекенд ещё не обновлён.
+
       const dcCount = Number(stats?.discord_server_members ?? stats?.discord_users ?? 0);
       const tgCount = Number(stats?.telegram_users ?? 0);
       const xCount = Number(stats?.x_users ?? 0);
 
-      // Total считаем сами, чтобы учесть новое поле discord_server_members.
+
       const total = dcCount + tgCount + xCount;
 
       dcCountEl.textContent = String(dcCount);
@@ -173,7 +172,7 @@ export function renderSocialActivity(target) {
         .slice(0, 5)
         .map((r) => ({
           name: r.username ?? 'Unknown',
-          value: Number(r.messages ?? 0), // messages = engage_points
+          value: Number(r.messages ?? 0),
         }));
 
       const boards = [
@@ -211,7 +210,6 @@ export function renderSocialActivity(target) {
         return;
       }
 
-      // X
       const data = await findXUser(username);
       if (data && data.error) {
         resultValue.textContent = `Not found in X: ${username}`;
@@ -232,4 +230,5 @@ export function renderSocialActivity(target) {
     searchBtn.removeEventListener('click', handleSearch);
   };
 }
+
 
