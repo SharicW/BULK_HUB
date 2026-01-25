@@ -1515,12 +1515,7 @@ body,
   opacity: 0.75;
 }
 
-/* ==========================================================================
-   RESPONSIVE STYLES - Mobile & Tablet Adaptation
-   Добавлено для адаптивности. НЕ удалять существующие стили выше.
-   ========================================================================== */
 
-/* --- Базовые правила адаптивности --- */
 img,
 video,
 svg {
@@ -1528,30 +1523,28 @@ svg {
   height: auto;
 }
 
-/* Улучшенный touch-target размер для мобильных */
+
 .is-touch .btn-primary,
 .is-touch .btn-secondary,
 .is-touch .sidebar__link {
-  min-height: 44px; /* Рекомендуемый минимум для touch */
+  min-height: 44px;
 }
 
-/* Плавные переходы для адаптивных изменений */
+
 #sidebar,
 #main,
 .main-shell {
   transition: width 0.2s ease, margin 0.2s ease, padding 0.2s ease;
 }
 
-/* --- CSS Custom Properties для адаптива --- */
+
 :root {
   --sidebar-width-mobile: 100%;
   --main-padding-mobile: 16px;
   --main-padding-tablet: 24px;
 }
 
-/* ==========================================================================
-   TABLET BREAKPOINT (769px - 1024px)
-   ========================================================================== */
+
 @media (min-width: 769px) and (max-width: 1024px) {
   :root {
     --sidebar-width: 220px;
@@ -1579,7 +1572,7 @@ svg {
     height: 20px;
   }
 
-  /* Уменьшаем крупные шрифты на планшете */
+
   .social-activity__total-value {
     font-size: 44px;
   }
@@ -1592,12 +1585,12 @@ svg {
     font-size: 24px;
   }
 
-  /* Карта */
+
   .map-stage {
     min-height: 500px;
   }
 
-  /* Location panel на карте */
+
   .location-panel {
     width: min(280px, 85%);
     padding: 14px;
@@ -1608,12 +1601,9 @@ svg {
   }
 }
 
-/* ==========================================================================
-   MOBILE BREAKPOINT - УЛУЧШЕННЫЙ (0 - 768px)
-   Переопределяет существующий @media (max-width: 640px)
-   ========================================================================== */
+
 @media (max-width: 768px) {
-  /* --- Основной layout --- */
+
   body {
     overflow: auto;
     overflow-x: hidden;
@@ -1624,7 +1614,7 @@ svg {
     min-height: 100vh;
   }
 
-  /* --- Sidebar становится верхней навигацией --- */
+
   #sidebar {
     position: sticky;
     top: 0;
@@ -1647,7 +1637,7 @@ svg {
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Скрываем скроллбар на мобильном sidebar */
+
   #sidebar::-webkit-scrollbar {
     display: none;
   }
@@ -1656,7 +1646,7 @@ svg {
     scrollbar-width: none;
   }
 
-  /* --- Main content на мобилке --- */
+
   #main {
     margin-left: 0;
     width: 100%;
@@ -1668,7 +1658,7 @@ svg {
     padding-bottom: 32px;
   }
 
-  /* --- Sidebar элементы на мобилке --- */
+
   .sidebar__brand {
     flex-shrink: 0;
     max-width: 100px;
@@ -1720,7 +1710,7 @@ svg {
     flex-shrink: 0;
   }
 
-  /* --- Типография на мобилке --- */
+
   .page-header h1 {
     font-size: 22px;
   }
@@ -1737,7 +1727,7 @@ svg {
     font-size: 24px;
   }
 
-  /* --- Карточки и гриды на мобилке --- */
+
   .card-grid,
   .profile-grid,
   .social-activity__metrics,
@@ -1751,7 +1741,7 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  /* --- Карта глобуса на мобилке --- */
+
   .page-shell--map {
     height: auto;
     min-height: calc(100vh - 100px);
@@ -1766,7 +1756,7 @@ svg {
     border-radius: 12px;
   }
 
-  /* Location panel на мобилке - под картой */
+
   .location-panel {
     position: relative;
     top: auto;
@@ -1782,7 +1772,7 @@ svg {
     font-size: 18px;
   }
 
-  /* --- Stake transactions на мобилке --- */
+
   .stake-transaction {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -1798,9 +1788,9 @@ svg {
     padding: 14px;
   }
 
-  /* --- Формы на мобилке --- */
+
   .form-group input {
-    font-size: 16px; /* Предотвращает zoom на iOS */
+    font-size: 16px;
     padding: 14px 12px;
   }
 
@@ -1810,7 +1800,7 @@ svg {
     font-size: 15px;
   }
 
-  /* --- Модалки на мобилке --- */
+
   .modal-content {
     margin: 12px;
     padding: 20px;
@@ -1823,7 +1813,7 @@ svg {
     padding: 24px 20px;
   }
 
-  /* --- Search controls на мобилке --- */
+
   .social-activity__search-controls,
   .contributions__posts-search {
     grid-template-columns: 1fr;
@@ -1838,9 +1828,7 @@ svg {
   }
 }
 
-/* ==========================================================================
-   NARROW MOBILE (0 - 400px) — очень узкие экраны
-   ========================================================================== */
+
 @media (max-width: 400px) {
   .main-shell {
     padding: 12px;
@@ -1851,7 +1839,7 @@ svg {
     padding: 10px 12px;
   }
 
-  /* Скрываем текст, оставляем только иконки */
+
   .sidebar__text {
     display: none;
   }
@@ -1887,7 +1875,7 @@ svg {
     font-size: 16px;
   }
 
-  /* X Posts grid */
+
   .x-posts-grid {
     gap: 10px;
   }
@@ -1901,9 +1889,7 @@ svg {
   }
 }
 
-/* ==========================================================================
-   LANDSCAPE MOBILE — горизонтальная ориентация
-   ========================================================================== */
+
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
   #sidebar {
     padding: 8px 16px;
@@ -1922,9 +1908,7 @@ svg {
   }
 }
 
-/* ==========================================================================
-   HOVER STATES — отключаем hover на touch устройствах
-   ========================================================================== */
+
 @media (hover: none) {
   .sidebar__link:hover {
     background: transparent;
@@ -1941,9 +1925,7 @@ svg {
   }
 }
 
-/* ==========================================================================
-   PRINT STYLES
-   ========================================================================== */
+
 @media print {
   #sidebar {
     display: none;
@@ -1957,4 +1939,5 @@ svg {
   .login-modal-overlay {
     display: none !important;
   }
+
 }
