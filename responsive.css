@@ -1,15 +1,8 @@
-/* ==========================================================================
-   RESPONSIVE STYLES - Mobile & Tablet Adaptation
-   Bulk Hub - Адаптивность для мобильных устройств
-   Подключается ПОСЛЕ style.css для переопределения стилей
-   ========================================================================== */
-
-/* --- iOS Safari: Фикс белой полоски снизу --- */
 html {
-  /* Используем 100dvh для корректной высоты на iOS Safari */
+
   min-height: 100dvh;
   min-height: -webkit-fill-available;
-  background: #1B1A17; /* Тот же цвет что и body, чтобы не просвечивало белое */
+  background: #1B1A17;
 }
 
 body {
@@ -18,7 +11,7 @@ body {
   background: #1B1A17;
 }
 
-/* --- Базовые правила адаптивности --- */
+
 img,
 video,
 svg {
@@ -26,30 +19,28 @@ svg {
   height: auto;
 }
 
-/* Улучшенный touch-target размер для мобильных устройств */
+
 .is-touch .btn-primary,
 .is-touch .btn-secondary,
 .is-touch .sidebar__link {
-  min-height: 44px; /* Рекомендуемый минимум для touch (Apple HIG) */
+  min-height: 44px; 
 }
 
-/* Плавные переходы для адаптивных изменений */
+
 #sidebar,
 #main,
 .main-shell {
   transition: width 0.2s ease, margin 0.2s ease, padding 0.2s ease;
 }
 
-/* --- CSS Custom Properties для адаптива --- */
+
 :root {
   --sidebar-width-mobile: 100%;
   --main-padding-mobile: 16px;
   --main-padding-tablet: 24px;
 }
 
-/* ==========================================================================
-   TABLET BREAKPOINT (769px - 1024px)
-   ========================================================================== */
+
 @media (min-width: 769px) and (max-width: 1024px) {
   :root {
     --sidebar-width: 220px;
@@ -77,7 +68,7 @@ svg {
     height: 20px;
   }
 
-  /* Уменьшаем крупные шрифты на планшете */
+
   .social-activity__total-value {
     font-size: 44px;
   }
@@ -90,12 +81,12 @@ svg {
     font-size: 24px;
   }
 
-  /* Карта */
+
   .map-stage {
     min-height: 500px;
   }
 
-  /* Location panel на карте */
+
   .location-panel {
     width: min(280px, 85%);
     padding: 14px;
@@ -106,24 +97,21 @@ svg {
   }
 }
 
-/* ==========================================================================
-   MOBILE BREAKPOINT - УЛУЧШЕННЫЙ (0 - 768px)
-   Переопределяет существующий @media (max-width: 640px) из style.css
-   ========================================================================== */
+
 @media (max-width: 768px) {
-  /* --- Основной layout --- */
+
   body {
     overflow: auto;
-    overflow-x: hidden; /* Предотвращаем горизонтальный скролл */
+    overflow-x: hidden;
   }
 
   #app {
     flex-direction: column;
-    min-height: 100dvh; /* Динамическая высота для iOS Safari */
-    min-height: -webkit-fill-available; /* Fallback для старых Safari */
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
   }
 
-  /* --- Sidebar становится верхней навигацией --- */
+
   #sidebar {
     position: sticky;
     top: 0;
@@ -132,21 +120,21 @@ svg {
     bottom: auto;
     width: 100%;
     height: auto;
-    min-height: 56px; /* Фиксированная минимальная высота */
+    min-height: 56px;
     flex-direction: row;
     align-items: center;
-    flex-wrap: nowrap; /* КРИТИЧНО: НЕ переносим, используем скролл */
+    flex-wrap: nowrap;
     gap: 6px;
     padding: 10px 12px;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     z-index: 100;
-    overflow-x: auto; /* Горизонтальный скролл если не влезает */
+    overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
   }
 
-  /* Скрываем скроллбар на мобильном sidebar */
+
   #sidebar::-webkit-scrollbar {
     display: none;
   }
@@ -155,12 +143,12 @@ svg {
     scrollbar-width: none;
   }
 
-  /* --- Main content на мобилке --- */
+
   #main {
     margin-left: 0;
     width: 100%;
-    min-height: calc(100dvh - 70px); /* Минус высота sidebar, dvh для iOS */
-    min-height: calc(-webkit-fill-available - 70px); /* Fallback для старых Safari */
+    min-height: calc(100dvh - 70px);
+    min-height: calc(-webkit-fill-available - 70px);
   }
 
   .main-shell {
@@ -168,17 +156,17 @@ svg {
     padding-bottom: 32px;
   }
 
-  /* --- Sidebar элементы на мобилке --- */
+
   .sidebar__brand {
     flex-shrink: 0;
     flex-grow: 0;
-    width: auto; /* Авто-ширина под логотип */
+    width: auto;
     min-width: 0;
     overflow: visible;
   }
 
   .sidebar__brand-logo {
-    height: 32px; /* Увеличенный логотип на мобиле */
+    height: 32px;
     max-height: 36px;
     width: auto;
     object-fit: contain;
@@ -194,13 +182,13 @@ svg {
   }
 
   .sidebar__label {
-    display: none; /* Скрываем "Main" label на мобилке */
+    display: none;
   }
 
   .sidebar__links {
     flex-direction: row;
     gap: 2px;
-    flex-wrap: nowrap; /* НЕ переносим */
+    flex-wrap: nowrap;
     display: flex;
     align-items: center;
   }
@@ -208,14 +196,14 @@ svg {
   .sidebar__link {
     padding: 8px;
     border-radius: 8px;
-    flex-shrink: 0; /* НЕ сжимаем ссылки */
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
   }
 
-  /* На мобиле <= 768px скрываем текст, только иконки */
+
   .sidebar__text {
     display: none;
   }
@@ -231,14 +219,14 @@ svg {
     padding-top: 0;
     border-top: none;
     flex-shrink: 0;
-    margin-left: auto; /* Прижимаем Profile к правому краю */
+    margin-left: auto;
   }
   
   .sidebar__profile .sidebar__link {
     padding: 8px;
   }
 
-  /* --- Типография на мобилке --- */
+
   .page-header h1 {
     font-size: 22px;
   }
@@ -255,7 +243,6 @@ svg {
     font-size: 24px;
   }
 
-  /* --- Карточки и гриды на мобилке (одна колонка) --- */
   .card-grid,
   .profile-grid,
   .social-activity__metrics,
@@ -269,13 +256,12 @@ svg {
     grid-template-columns: 1fr;
   }
 
-  /* --- Карта глобуса на мобилке --- */
   .page-shell--map {
     height: auto;
-    min-height: calc(100dvh - 56px); /* Минус высота header */
+    min-height: calc(100dvh - 56px);
     display: flex;
     flex-direction: column;
-    padding-bottom: 70px; /* Место для свёрнутого location-panel */
+    padding-bottom: 70px;
   }
 
   .map-stage {
@@ -294,7 +280,6 @@ svg {
     overflow: hidden;
   }
   
-  /* Критично для корректной работы глобуса на мобильных */
   .globe-container {
     position: absolute !important;
     inset: 0 !important;
@@ -306,7 +291,7 @@ svg {
     display: block !important;
     width: 100% !important;
     height: 100% !important;
-    touch-action: manipulation; /* Tap без 300ms задержки + drag */
+    touch-action: manipulation;
   }
   
   .labels-container {
@@ -315,7 +300,6 @@ svg {
     pointer-events: none;
   }
 
-  /* Location panel на мобилке - компактный снизу */
   .location-panel {
     position: fixed;
     bottom: 0;
@@ -324,7 +308,7 @@ svg {
     top: auto;
     width: 100%;
     max-width: none;
-    max-height: 45vh; /* Максимум 45% экрана */
+    max-height: 45vh;
     margin: 0;
     padding: 16px;
     padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
@@ -335,7 +319,6 @@ svg {
     transition: transform 0.3s ease, max-height 0.3s ease;
   }
   
-  /* Когда panel свёрнут (добавляется JS-ом) */
   .location-panel.is-collapsed {
     max-height: 60px;
     overflow: hidden;
@@ -349,7 +332,7 @@ svg {
   }
 
   .location-panel__header {
-    cursor: pointer; /* Кликабельный для сворачивания */
+    cursor: pointer;
   }
   
   .location-panel__header h2 {
@@ -359,7 +342,6 @@ svg {
     justify-content: space-between;
   }
   
-  /* Индикатор сворачивания */
   .location-panel__header h2::after {
     content: '▼';
     font-size: 10px;
@@ -371,7 +353,6 @@ svg {
     transform: rotate(180deg);
   }
 
-  /* --- Stake transactions на мобилке --- */
   .stake-transaction {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -387,9 +368,8 @@ svg {
     padding: 14px;
   }
 
-  /* --- Формы на мобилке --- */
   .form-group input {
-    font-size: 16px; /* Предотвращает авто-zoom на iOS */
+    font-size: 16px;
     padding: 14px 12px;
   }
 
@@ -399,7 +379,6 @@ svg {
     font-size: 15px;
   }
 
-  /* --- Модалки на мобилке --- */
   .modal-content {
     margin: 12px;
     padding: 20px;
@@ -412,7 +391,6 @@ svg {
     padding: 24px 20px;
   }
 
-  /* --- Search controls на мобилке --- */
   .social-activity__search-controls,
   .contributions__posts-search {
     grid-template-columns: 1fr;
@@ -427,9 +405,6 @@ svg {
   }
 }
 
-/* ==========================================================================
-   LARGE MOBILE (401px - 430px) — iPhone 14 Pro Max, iPhone 16 Pro Max
-   ========================================================================== */
 @media (min-width: 401px) and (max-width: 430px) {
   .map-stage {
     min-height: 320px;
@@ -449,9 +424,6 @@ svg {
   }
 }
 
-/* ==========================================================================
-   MEDIUM MOBILE (393px - 400px) — iPhone 14 Pro, iPhone 15 Pro, iPhone 16 Pro
-   ========================================================================== */
 @media (min-width: 393px) and (max-width: 400px) {
   .map-stage {
     min-height: 300px;
@@ -463,9 +435,6 @@ svg {
   }
 }
 
-/* ==========================================================================
-   NARROW MOBILE (0 - 400px) — очень узкие экраны (iPhone SE, Galaxy S8)
-   ========================================================================== */
 @media (max-width: 400px) {
   .main-shell {
     padding: 12px;
@@ -529,9 +498,6 @@ svg {
   }
 }
 
-/* ==========================================================================
-   LANDSCAPE MOBILE — горизонтальная ориентация телефона
-   ========================================================================== */
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
   #sidebar {
     padding: 8px 16px;
@@ -550,9 +516,6 @@ svg {
   }
 }
 
-/* ==========================================================================
-   HOVER STATES — отключаем hover эффекты на touch устройствах
-   ========================================================================== */
 @media (hover: none) {
   .sidebar__link:hover {
     background: transparent;
@@ -569,11 +532,8 @@ svg {
   }
 }
 
-/* ==========================================================================
-   SAFE AREA (для iPhone с notch, Dynamic Island и home indicator)
-   ========================================================================== */
 @supports (padding: max(0px)) {
-  /* Фикс белой полоски снизу на iOS Safari */
+
   html, body {
     padding-bottom: env(safe-area-inset-bottom, 0);
     background-color: #1B1A17;
@@ -596,20 +556,17 @@ svg {
       padding-bottom: max(32px, env(safe-area-inset-bottom));
     }
     
-    /* Глобус на мобильных с safe-area */
+
     .map-stage {
       padding-left: max(8px, env(safe-area-inset-left));
       padding-right: max(8px, env(safe-area-inset-right));
     }
     
-    /* Location panel уже имеет padding-bottom с safe-area */
+
   }
 }
 
-/* ==========================================================================
-   iOS Safari Specific Fixes
-   ========================================================================== */
-/* Фикс для iPhone 14 Pro+ с Dynamic Island - дополнительный отступ сверху */
+
 @supports (padding: env(safe-area-inset-top)) {
   @media (max-width: 430px) and (min-height: 800px) {
     #sidebar {
@@ -618,9 +575,7 @@ svg {
   }
 }
 
-/* ==========================================================================
-   PRINT STYLES
-   ========================================================================== */
+
 @media print {
   #sidebar {
     display: none;
@@ -635,3 +590,4 @@ svg {
     display: none !important;
   }
 }
+
