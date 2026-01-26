@@ -1,7 +1,21 @@
-:{$PORT}
+:{$PORT} {
+  root * /srv
 
-root * /srv
 
-try_files {path} {path}/ /index.html
+  @static file
+  handle @static {
+    file_server
+  }
 
-file_server
+
+  @html header Accept *text/html*
+  handle @html {
+    try_files {path} {path}/ /index.html
+    file_server
+  }
+
+
+  handle {
+    respond "Not found" 404
+  }
+}
