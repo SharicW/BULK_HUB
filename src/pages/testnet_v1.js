@@ -51,17 +51,21 @@ export async function renderTestnet(target) {
       getBulkTestnetLatest()
     ]);
 
-    cards.volume.setValue(`$${(summary.total_volume / 1e6).toFixed(1)}M`);
-    cards.oi.setValue(`$${(summary.total_oi / 1e3).toFixed(0)}K`);
-    cards.funding.setValue(`${summary.avg_funding > 0 ? '+' : ''}${summary.avg_funding.toFixed(4)}%`);
-    cards.markets.setValue(summary.active_markets);
-    cards.markets.value.textContent = summary.active_markets ?? '–';
-    cards.volume.value.textContent = formatUsd(summary.total_volume);
-    cards.oi.value.textContent = formatUsd(summary.total_oi);
+    // SUMMARY
+    cards.markets.value.textContent =
+      summary.active_markets ?? '–';
+
+    cards.volume.value.textContent =
+      formatUsd(summary.total_volume);
+
+    cards.oi.value.textContent =
+      formatUsd(summary.total_oi);
+
     cards.funding.value.textContent =
       (summary.avg_funding >= 0 ? '+' : '') +
-      Number(summary.avg_funding).toFixed(3) + '%';
+      Number(summary.avg_funding).toFixed(4) + '%';
 
+    // TABLE
     markets.forEach(m => {
       const delta = m.funding || '0%';
       const positive = !delta.startsWith('-');
@@ -70,13 +74,16 @@ export async function renderTestnet(target) {
         createEl('td', {}, m.market),
         createEl('td', {}, m.oracle_price || '–'),
         createEl('td', {}, formatUsd(m.volume_24h)),
-        createEl('td', {
-          class: positive ? 'delta-positive' : 'delta-negative'
-        }, (positive ? '+' : '') + delta.replace('+', ''))
+        createEl(
+          'td',
+          { class: positive ? 'delta-positive' : 'delta-negative' },
+          (positive ? '+' : '') + delta.replace('+', '')
+        )
       ]));
     });
 
   } catch (e) {
+    console.error('Testnet render error', e);
     tableCard.textContent = 'Failed to load testnet data';
   }
 }
@@ -91,12 +98,10 @@ function summaryCard(label) {
 }
 
 function formatUsd(v) {
-  if (!v) return '–';
+  if (v === null || v === undefined) return '–';
   const n = Number(v);
-  if (Number.isNaN(n)) return v;
+  if (Number.isNaN(n)) return '–';
   if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
   if (n >= 1_000) return '$' + (n / 1_000).toFixed(1) + 'K';
   return '$' + n.toFixed(2);
 }
-
-
