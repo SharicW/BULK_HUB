@@ -82,6 +82,13 @@ export async function getXUserTotals(username) {
   return request(`/x/totals/${encodeURIComponent(username)}`);
 }
 
+export async function getBulkTestnetLatest() {
+  return request('/bulk/testnet/latest');
+}
+
+export async function getBulkTestnetSummary() {
+  return request('/bulk/testnet/summary');
+}
 
 
 
