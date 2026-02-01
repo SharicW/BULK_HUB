@@ -51,6 +51,10 @@ export async function renderTestnet(target) {
       getBulkTestnetLatest()
     ]);
 
+    cards.volume.setValue(`$${(summary.total_volume / 1e6).toFixed(1)}M`);
+    cards.oi.setValue(`$${(summary.total_oi / 1e3).toFixed(0)}K`);
+    cards.funding.setValue(`${summary.avg_funding > 0 ? '+' : ''}${summary.avg_funding.toFixed(4)}%`);
+    cards.markets.setValue(summary.active_markets);
     cards.markets.value.textContent = summary.active_markets ?? '–';
     cards.volume.value.textContent = formatUsd(summary.total_volume);
     cards.oi.value.textContent = formatUsd(summary.total_oi);
@@ -94,3 +98,5 @@ function formatUsd(v) {
   if (n >= 1_000) return '$' + (n / 1_000).toFixed(1) + 'K';
   return '$' + n.toFixed(2);
 }
+
+
