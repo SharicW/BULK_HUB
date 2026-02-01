@@ -1,8 +1,8 @@
-import { createEl, clear } from '../utils/dom.js';
+import { createEl } from '../utils/dom.js';
 import { getBulkTestnetLatest, getBulkTestnetSummary } from '../api.js';
 
 export async function renderTestnet(target) {
-  clear(target);
+  target.innerHTML = '';
 
   const shell = createEl('div', { class: 'page-shell' });
 
