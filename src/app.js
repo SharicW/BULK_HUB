@@ -6,12 +6,15 @@ import { renderSocialActivity } from './pages/socialActivity.js';
 import { renderStakeInformation } from './pages/stakeInformation.js';
 import { renderProfile } from './pages/profile.js';
 import { initDeviceDetection } from './utils/device.js';
+import { renderTestnet } from './pages/testnet_v1.js';
+
 
 const routes = {
   '#map': { id: 'map', render: initGlobalMap },
   '#contrib': { id: 'contrib', render: renderMemberContribution },
   '#social': { id: 'social', render: renderSocialActivity },
   '#stake': { id: 'stake', render: renderStakeInformation },
+  '#testnet': {id: 'testnet',render: renderTestnet},
   '#profile': { id: 'profile', render: renderProfile },
 };
 
@@ -84,3 +87,4 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
