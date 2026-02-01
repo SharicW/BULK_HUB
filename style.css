@@ -1941,3 +1941,43 @@ svg {
   }
 
 }
+
+
+.testnet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.testnet-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding-bottom: 10px;
+}
+
+.testnet-table td {
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.testnet-table tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+.delta-positive {
+  color: #6CFF9E;
+}
+
+.delta-negative {
+  color: #FF6B6B;
+}
+
+.divider {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+
