@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { id: 'map', label: 'Global map', hash: '#map', icon: globeIcon },
   { id: 'contrib', label: 'Member Contributions', hash: '#contrib', icon: usersIcon },
   { id: 'social', label: 'Social Activity', hash: '#social', icon: activityIcon },
+  { id: 'testnet', label: 'Testnet', hash: '#testnet'},
   { id: 'stake', label: 'Stake information', hash: '#stake', icon: pieIcon },
 ];
 
@@ -72,4 +73,5 @@ function createNavButton({ hash, label, icon }) {
 
   return btn;
 }
+
 
