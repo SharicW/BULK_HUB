@@ -19,7 +19,7 @@ function toNumber(value) {
     const s = value.trim();
     if (!s) return null;
 
-
+    // handle values like "$1,234.56", "1,234.56", "0.0012%", "+0.0012%"
     const cleaned = s
       .replace(/[$,%]/g, '')
       .replace(/,/g, '')
@@ -50,7 +50,7 @@ function formatPrice(value) {
 }
 
 function formatFundingPct(value) {
-
+  // stored as percent points, e.g. 0.0008 (meaning 0.0008%)
   const n = toNumber(value);
   if (n === null) return '—';
   const sign = n > 0 ? '+' : '';
@@ -64,7 +64,7 @@ function renderRow(market) {
   const price = formatPrice(market.oracle_price);
   const vol = formatUsd(market.volume_24h);
 
-
+  // For Δ we show funding (closest proxy we have in this dataset)
   const fundingNum = toNumber(market.funding);
   const fundingText = fundingNum === null ? (market.funding ?? '—').toString() : formatFundingPct(fundingNum);
   const deltaClass = fundingNum === null ? '' : (fundingNum >= 0 ? 'delta-positive' : 'delta-negative');
@@ -118,6 +118,19 @@ export async function renderTestnet(target) {
   tableCard.appendChild(table);
   shell.appendChild(tableCard);
 
+  shell.appendChild(createEl('hr', { className: 'divider' }));
+
+  const joinBtn = createEl('a', {
+    className: 'btn-primary',
+    attrs: {
+      href: 'https://early.bulk.trade/',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    },
+    html: 'Join the testnet',
+  });
+  shell.appendChild(joinBtn);
+
   target.appendChild(shell);
 
   let summary = null;
@@ -129,7 +142,7 @@ export async function renderTestnet(target) {
     cards.funding.value.textContent = formatFundingPct(summary?.avg_funding);
   } catch (e) {
     console.error('Failed to load testnet summary', e);
-
+    // Keep placeholders — page still renders.
   }
 
   try {
