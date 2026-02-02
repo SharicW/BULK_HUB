@@ -1,107 +1,151 @@
 import { createEl } from '../utils/dom.js';
 import { getBulkTestnetLatest, getBulkTestnetSummary } from '../api.js';
 
+function summaryCard(label) {
+  const card = createEl('div', { className: 'card' });
+
+  const title = createEl('div', { className: 'card-title', html: label });
+  const value = createEl('div', { className: 'card-value', html: '—' });
+
+  card.append(title, value);
+  return { card, value };
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s) return null;
+
+
+    const cleaned = s
+      .replace(/[$,%]/g, '')
+      .replace(/,/g, '')
+      .replace(/\s+/g, '');
+
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : null;
+  }
+
+  return null;
+}
+
+function formatUsd(value) {
+  const n = toNumber(value);
+  if (n === null) return '—';
+
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (abs >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+function formatPrice(value) {
+  const n = toNumber(value);
+  if (n === null) return (value ?? '—').toString();
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatFundingPct(value) {
+
+  const n = toNumber(value);
+  if (n === null) return '—';
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(4)}%`;
+}
+
+function renderRow(market) {
+  const tr = createEl('tr');
+
+  const marketName = (market.market ?? '—').toString();
+  const price = formatPrice(market.oracle_price);
+  const vol = formatUsd(market.volume_24h);
+
+
+  const fundingNum = toNumber(market.funding);
+  const fundingText = fundingNum === null ? (market.funding ?? '—').toString() : formatFundingPct(fundingNum);
+  const deltaClass = fundingNum === null ? '' : (fundingNum >= 0 ? 'delta-positive' : 'delta-negative');
+
+  const tdMarket = createEl('td', { html: marketName });
+  const tdPrice = createEl('td', { html: price });
+  const tdVol = createEl('td', { html: vol });
+  const tdDelta = createEl('td', { className: deltaClass, html: fundingText });
+
+  tr.append(tdMarket, tdPrice, tdVol, tdDelta);
+  return tr;
+}
+
 export async function renderTestnet(target) {
+  if (!target) return;
+
   target.innerHTML = '';
 
-  const shell = createEl('div', { class: 'page-shell' });
+  const shell = createEl('div', { className: 'page-shell' });
 
-  const header = createEl('div', { class: 'page-header' }, [
-    createEl('span', { class: 'eyebrow' }, 'Markets'),
-    createEl('h1', {}, 'Testnet')
-  ]);
-
+  const header = createEl('div', { className: 'page-header' });
+  header.append(
+    createEl('span', { className: 'eyebrow', html: 'Markets' }),
+    createEl('h1', { html: 'Testnet' }),
+  );
   shell.appendChild(header);
 
-  const summaryGrid = createEl('div', { class: 'card-grid' });
+  const summaryGrid = createEl('div', { className: 'card-grid' });
   const cards = {
     markets: summaryCard('Active Markets'),
     volume: summaryCard('24h Volume'),
     oi: summaryCard('Open Interest'),
     funding: summaryCard('Avg Funding'),
   };
-
-  Object.values(cards).forEach(c => summaryGrid.appendChild(c.card));
+  Object.values(cards).forEach(({ card }) => summaryGrid.appendChild(card));
   shell.appendChild(summaryGrid);
 
-  shell.appendChild(createEl('hr', { class: 'divider' }));
+  shell.appendChild(createEl('hr', { className: 'divider' }));
 
-  const tableCard = createEl('div', { class: 'card' });
-  const table = createEl('table', { class: 'testnet-table' });
+  const tableCard = createEl('div', { className: 'card' });
+  const table = createEl('table', { className: 'testnet-table' });
 
-  table.appendChild(createEl('thead', {}, [
-    createEl('tr', {}, [
-      createEl('th', {}, 'Market'),
-      createEl('th', {}, 'Price'),
-      createEl('th', {}, '24h Vol'),
-      createEl('th', {}, 'Δ'),
-    ])
-  ]));
+  const thead = createEl('thead');
+  const headRow = createEl('tr');
+  ['Market', 'Price', '24h Vol', 'Δ'].forEach((t) => headRow.appendChild(createEl('th', { html: t })));
+  thead.appendChild(headRow);
 
   const tbody = createEl('tbody');
-  table.appendChild(tbody);
+
+  table.append(thead, tbody);
   tableCard.appendChild(table);
   shell.appendChild(tableCard);
 
   target.appendChild(shell);
 
+  let summary = null;
   try {
-    const [summary, markets] = await Promise.all([
-      getBulkTestnetSummary(),
-      getBulkTestnetLatest()
-    ]);
-
-    // SUMMARY
-    cards.markets.value.textContent =
-      summary.active_markets ?? '–';
-
-    cards.volume.value.textContent =
-      formatUsd(summary.total_volume);
-
-    cards.oi.value.textContent =
-      formatUsd(summary.total_oi);
-
-    cards.funding.value.textContent =
-      (summary.avg_funding >= 0 ? '+' : '') +
-      Number(summary.avg_funding).toFixed(4) + '%';
-
-    // TABLE
-    markets.forEach(m => {
-      const delta = m.funding || '0%';
-      const positive = !delta.startsWith('-');
-
-      tbody.appendChild(createEl('tr', {}, [
-        createEl('td', {}, m.market),
-        createEl('td', {}, m.oracle_price || '–'),
-        createEl('td', {}, formatUsd(m.volume_24h)),
-        createEl(
-          'td',
-          { class: positive ? 'delta-positive' : 'delta-negative' },
-          (positive ? '+' : '') + delta.replace('+', '')
-        )
-      ]));
-    });
-
+    summary = await getBulkTestnetSummary();
+    cards.markets.value.textContent = String(summary?.active_markets ?? '—');
+    cards.volume.value.textContent = formatUsd(summary?.total_volume);
+    cards.oi.value.textContent = formatUsd(summary?.total_oi);
+    cards.funding.value.textContent = formatFundingPct(summary?.avg_funding);
   } catch (e) {
-    console.error('Testnet render error', e);
-    tableCard.textContent = 'Failed to load testnet data';
+    console.error('Failed to load testnet summary', e);
+
   }
-}
 
-function summaryCard(label) {
-  const value = createEl('div', { class: 'card-value' }, '–');
-  const card = createEl('div', { class: 'card' }, [
-    createEl('div', { class: 'card-title' }, label),
-    value
-  ]);
-  return { card, value };
-}
+  try {
+    const markets = await getBulkTestnetLatest();
 
-function formatUsd(v) {
-  if (v === null || v === undefined) return '–';
-  const n = Number(v);
-  if (Number.isNaN(n)) return '–';
-  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return '$' + (n / 1_000).toFixed(1) + 'K';
-  return '$' + n.toFixed(2);
+    tbody.innerHTML = '';
+    if (Array.isArray(markets) && markets.length) {
+      markets.forEach((m) => tbody.appendChild(renderRow(m)));
+    } else {
+      const empty = createEl('tr');
+      const td = createEl('td', { attrs: { colspan: '4' }, html: 'No market data yet' });
+      empty.appendChild(td);
+      tbody.appendChild(empty);
+    }
+  } catch (e) {
+    console.error('Failed to load testnet markets', e);
+    tableCard.innerHTML = '<div class="card-muted">Failed to load testnet data</div>';
+  }
 }
