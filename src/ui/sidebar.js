@@ -1,12 +1,20 @@
 import { globeIcon, usersIcon, activityIcon, pieIcon, userIcon } from './icons.js';
 import { createEl } from '../utils/dom.js';
 
+const testnetIcon = `
+<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M9 2h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M10 2v5l-4.5 7.5A5.5 5.5 0 0 0 10.2 22h3.6a5.5 5.5 0 0 0 4.7-7.5L14 7V2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M8.4 14h7.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/>
+</svg>
+`;
+
 const NAV_ITEMS = [
   { id: 'map', label: 'Global map', hash: '#map', icon: globeIcon },
   { id: 'contrib', label: 'Member Contributions', hash: '#contrib', icon: usersIcon },
   { id: 'social', label: 'Social Activity', hash: '#social', icon: activityIcon },
-  { id: 'testnet', label: 'Testnet', hash: '#testnet'},
   { id: 'stake', label: 'Stake information', hash: '#stake', icon: pieIcon },
+  { id: 'testnet', label: 'Testnet', hash: '#testnet', icon: testnetIcon },
 ];
 
 const PROFILE_ITEM = { id: 'profile', label: 'Profile', hash: '#profile', icon: userIcon };
@@ -73,5 +81,4 @@ function createNavButton({ hash, label, icon }) {
 
   return btn;
 }
-
 
