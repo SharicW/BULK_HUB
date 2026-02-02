@@ -1,13 +1,6 @@
-import { globeIcon, usersIcon, activityIcon, pieIcon, userIcon } from './icons.js';
+import { globeIcon, usersIcon, activityIcon, pieIcon, userIcon, testnetIcon } from './icons.js';
 import { createEl } from '../utils/dom.js';
 
-const testnetIcon = `
-<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <path d="M9 2h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-  <path d="M10 2v5l-4.5 7.5A5.5 5.5 0 0 0 10.2 22h3.6a5.5 5.5 0 0 0 4.7-7.5L14 7V2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M8.4 14h7.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/>
-</svg>
-`;
 
 const NAV_ITEMS = [
   { id: 'map', label: 'Global map', hash: '#map', icon: globeIcon },
@@ -69,13 +62,15 @@ export function renderSidebar(target, { onNavigate }) {
 }
 
 function createNavButton({ hash, label, icon }) {
+  const safeIcon = icon ?? '';
+
   const btn = createEl('a', {
     className: 'sidebar__link',
     attrs: { href: hash, 'data-hash': hash, role: 'button' },
   });
 
   btn.innerHTML = `
-    <span class="sidebar__icon">${icon}</span>
+    <span class="sidebar__icon">${safeIcon}</span>
     <span class="sidebar__text">${label}</span>
   `;
 
