@@ -31,3 +31,12 @@ export const userIcon = baseIcon(`
   <circle cx="12" cy="7" r="4" />
 `);
 
+export const testnetIcon = baseIcon(`
+  <rect x="4" y="4" width="16" height="16" rx="3" />
+  <path d="M8 9h8" />
+  <path d="M8 12.5h8" />
+  <path d="M8 16h6" />
+  <path d="M16 20h4v-4" />
+  <path d="M16 20l4-4" />
+`);
+
