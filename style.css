@@ -1943,41 +1943,49 @@ svg {
 }
 
 
+hr.divider {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 18px 0;
+}
+
 .testnet-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+}
+
+.testnet-table th,
+.testnet-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
 }
 
 .testnet-table th {
-  text-align: left;
-  font-size: 12px;
-  text-transform: uppercase;
   color: var(--color-text-muted);
-  padding-bottom: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
 }
 
-.testnet-table td {
-  padding: 10px 0;
-  border-top: 1px solid rgba(255,255,255,0.06);
+.testnet-table td:first-child {
+  font-weight: 600;
 }
 
-.testnet-table tr:hover {
-  background: rgba(255,255,255,0.02);
+.testnet-table th:nth-child(n + 2),
+.testnet-table td:nth-child(n + 2) {
+  text-align: right;
+}
+
+.testnet-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .delta-positive {
-  color: #6CFF9E;
+  color: var(--color-accent-muted);
 }
 
 .delta-negative {
-  color: #FF6B6B;
+  color: var(--color-danger);
 }
-
-.divider {
-  margin: 20px 0;
-  border: none;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-
-
